@@ -1,20 +1,22 @@
-import logging
+import time
+import uuid
 from pathlib import Path
 
+from loguru import logger
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import get_settings
+from app.logging_config import setup_logging
 from app.routers.candidates import router as candidates_router
 from app.routers.jobs import router as jobs_router
 from app.services.llm_client import provider_status
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
+settings = get_settings()
+setup_logging(settings.log_level, settings.log_json)
 
 app = FastAPI(title="DevLens API", version="0.1.0")
 
@@ -28,6 +30,41 @@ app.add_middleware(
 
 app.include_router(candidates_router)
 app.include_router(jobs_router)
+
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    start = time.perf_counter()
+    bound_logger = logger.bind(request_id=request_id)
+    bound_logger.info(
+        "request started method={} path={} client={}",
+        request.method,
+        request.url.path,
+        request.client.host if request.client else "unknown",
+    )
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - start) * 1000
+        bound_logger.exception(
+            "request failed method={} path={} duration_ms={:.2f}",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+        raise
+
+    duration_ms = (time.perf_counter() - start) * 1000
+    response.headers["x-request-id"] = request_id
+    bound_logger.info(
+        "request completed method={} path={} status_code={} duration_ms={:.2f}",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 
 @app.get("/health")

@@ -165,6 +165,13 @@ Optional cache:
 DEVLENS_REDIS_URL=your_render_key_value_or_redis_url
 ```
 
+Optional logging controls:
+
+```env
+LOG_LEVEL=INFO
+LOG_JSON=false
+```
+
 If you prefer AWS Bedrock instead of OpenRouter, add the normal AWS credentials and region variables in Render:
 
 ```env

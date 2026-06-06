@@ -10,3 +10,4 @@ langchain-openai==0.2.14
 langchain-aws==0.2.10
 pydantic==2.10.4
 pydantic-settings==2.7.0
+loguru==0.7.3
