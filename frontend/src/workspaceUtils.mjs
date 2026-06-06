@@ -86,28 +86,3 @@ export function buildTabs(categories) {
 export function buildScoreReportTabs(categories) {
   return [...buildTabs(categories), { key: "relevant_jobs", name: "Relevant Jobs" }];
 }
-
-export const DEFAULT_JOB_FILTERS = {
-  employment_type: "",
-  experience_level: "",
-  workplace_type: "",
-  limit: 50,
-};
-
-export function serializeJobFilters(filters = {}) {
-  const params = new URLSearchParams();
-  const merged = { ...DEFAULT_JOB_FILTERS, ...filters };
-  const entries = [
-    ["employment_type", merged.employment_type],
-    ["experience_level", merged.experience_level],
-    ["workplace_type", merged.workplace_type],
-    ["limit", merged.limit],
-  ];
-
-  entries.forEach(([key, value]) => {
-    if (value === "" || value === null || value === undefined) return;
-    params.set(key, String(value));
-  });
-
-  return params.toString();
-}

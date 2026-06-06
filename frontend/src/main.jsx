@@ -19,10 +19,8 @@ import {
   Lightbulb,
   Loader2,
   MapPin,
-  Printer,
   Radar,
   RefreshCw,
-  SlidersHorizontal,
   Sparkles,
   Star,
   Tags,
@@ -33,12 +31,10 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import {
-  DEFAULT_JOB_FILTERS,
   buildScoreReportTabs,
   buildTabs,
   normalizeWorkspace,
   scoreBand,
-  serializeJobFilters,
 } from "./workspaceUtils.mjs";
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
@@ -62,6 +58,8 @@ const DEFAULT_STAGES = [
   { key: "summarizer", label: "Summarizer Agent", status: "idle", message: "Waiting to prepare the final summary." },
   { key: "results_ready", label: "Results Ready", status: "idle", message: "Waiting for final results." },
 ];
+
+const JOB_RESULT_LIMIT = 50;
 
 function App() {
   const [roles, setRoles] = useState(FALLBACK_ROLES);
@@ -497,9 +495,6 @@ function ScoreTopbar({ workspace, activeTab, setActiveTab, onBack }) {
         >
           <Briefcase size={18} /> Relevant Jobs
         </button>
-        <button className="score-button score-button-muted" type="button" onClick={() => window.print()}>
-          <Printer size={18} /> Print Report
-        </button>
         <button className="score-button score-button-primary" type="button" onClick={onBack}>
           <ArrowLeft size={18} /> Back to Upload
         </button>
@@ -768,11 +763,9 @@ function DisclosureList({ items, empty }) {
 }
 
 function RelevantJobsDashboard({ result, workspace }) {
-  const [filters, setFilters] = useState(DEFAULT_JOB_FILTERS);
   const [jobsState, setJobsState] = useState({ status: "idle", jobs: [], error: "", cacheStatus: "", metadata: null });
   const [refreshKey, setRefreshKey] = useState(0);
   const candidateId = result?.candidate_id;
-  const query = useMemo(() => serializeJobFilters(filters), [filters]);
   const scrapingUnavailable = jobsState.metadata?.availability === "scraping_unavailable";
 
   useEffect(() => {
@@ -782,7 +775,7 @@ function RelevantJobsDashboard({ result, workspace }) {
     async function loadJobs() {
       setJobsState((current) => ({ ...current, status: "loading", error: "" }));
       try {
-        const response = await fetch(`${API_URL}/candidates/${candidateId}/jobs${query ? `?${query}` : ""}`);
+        const response = await fetch(`${API_URL}/candidates/${candidateId}/jobs?limit=${JOB_RESULT_LIMIT}`);
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || "Could not load relevant jobs.");
         if (cancelled) return;
@@ -804,15 +797,7 @@ function RelevantJobsDashboard({ result, workspace }) {
     return () => {
       cancelled = true;
     };
-  }, [candidateId, query, refreshKey]);
-
-  function updateFilter(key, value) {
-    setFilters((current) => ({ ...current, [key]: value }));
-  }
-
-  function resetFilters() {
-    setFilters(DEFAULT_JOB_FILTERS);
-  }
+  }, [candidateId, refreshKey]);
 
   return (
     <section className="jobs-dashboard">
@@ -837,47 +822,6 @@ function RelevantJobsDashboard({ result, workspace }) {
           )}
         </div>
       </header>
-
-      {!scrapingUnavailable && (
-        <section className="score-panel jobs-filter-panel">
-          <div className="score-panel-title"><SlidersHorizontal size={19} /> Filters</div>
-          <div className="jobs-filter-grid">
-            <label>
-              <span>Employment</span>
-              <select value={filters.employment_type} onChange={(event) => updateFilter("employment_type", event.target.value)}>
-                <option value="">Any type</option>
-                <option value="full-time">Full-time</option>
-                <option value="part-time">Part-time</option>
-                <option value="internship">Internship</option>
-                <option value="contract">Contract</option>
-                <option value="freelance">Freelance</option>
-              </select>
-            </label>
-            <label>
-              <span>Level</span>
-              <select value={filters.experience_level} onChange={(event) => updateFilter("experience_level", event.target.value)}>
-                <option value="">Any level</option>
-                <option value="junior">Junior</option>
-                <option value="mid">Mid</option>
-                <option value="senior">Senior</option>
-                <option value="lead">Lead</option>
-              </select>
-            </label>
-            <label>
-              <span>Workplace</span>
-              <select value={filters.workplace_type} onChange={(event) => updateFilter("workplace_type", event.target.value)}>
-                <option value="">Any workplace</option>
-                <option value="onsite">Onsite</option>
-                <option value="hybrid">Hybrid</option>
-                <option value="remote">Remote</option>
-              </select>
-            </label>
-            <button className="score-button score-button-muted" type="button" onClick={resetFilters}>
-              <RefreshCw size={18} /> Reset
-            </button>
-          </div>
-        </section>
-      )}
 
       <JobsResultState state={jobsState} onRetry={() => setRefreshKey((value) => value + 1)} />
     </section>
@@ -931,7 +875,7 @@ function JobsResultState({ state, onRetry }) {
       <section className="score-panel jobs-state-panel">
         <Briefcase size={34} />
         <h3>No matching active jobs</h3>
-        <p>Try resetting employment, level, or workplace filters.</p>
+        <p>No active roles were returned for this CV role.</p>
       </section>
     );
   }
@@ -1207,15 +1151,18 @@ function SubScore({ name, value }) {
   const score = Number(data.score || 0);
   const max = Number(data.max || 0);
   const percent = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
+  const scoreLabel = max ? `${formatScore(score)}/${formatScore(max)}` : formatDetail(value);
   return (
-    <div className={`subscore ${scoreBand(percent).className}`}>
-      <div>
-        <strong>{titleize(name)}</strong>
+    <details className={`subscore ${scoreBand(percent).className}`}>
+      <summary>
+        <strong>{titleize(name)}{" \u2014 "}{scoreLabel}</strong>
+        <ChevronDown size={18} />
+      </summary>
+      <div className="subscore-body">
         {data.reasoning && <p>{data.reasoning}</p>}
+        {max > 0 && <i><b style={{ width: `${percent}%` }} /></i>}
       </div>
-      <span>{max ? `${formatScore(score)}/${formatScore(max)}` : formatDetail(value)}</span>
-      <i><b style={{ width: `${percent}%` }} /></i>
-    </div>
+    </details>
   );
 }
 
