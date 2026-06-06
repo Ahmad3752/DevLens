@@ -24,7 +24,6 @@ import {
   Sparkles,
   Star,
   Tags,
-  TrendingUp,
   Trophy,
   UploadCloud,
   Wrench,
@@ -524,7 +523,7 @@ function ScoreTabBar({ tabs, activeTab, setActiveTab }) {
 function ScoreReportTopSummary({ workspace }) {
   return (
     <section className="score-report-top">
-      <PersistentTotalScore workspace={workspace} />
+      <PersistentRoleFitScore workspace={workspace} />
       <article className="score-report-context">
         <div className="score-ready-chip"><CheckCircle2 size={18} /> Results ready</div>
         <div className="score-report-copy">
@@ -557,15 +556,15 @@ function ScoreMetricCard({ label, score, caption, icon, accent = "primary" }) {
   );
 }
 
-function PersistentTotalScore({ workspace }) {
-  const totalBand = scoreBand(workspace.totalScore);
+function PersistentRoleFitScore({ workspace }) {
   return (
-    <section className="score-persistent-total" aria-label="Total score">
+    <section className="score-persistent-role-fit" aria-label="Role fit score">
       <ScoreMetricCard
-        label="Total Score"
-        score={workspace.totalScore}
-        caption={workspace.tier || totalBand.label}
-        icon={<TrendingUp size={22} />}
+        label="Role Fit"
+        score={workspace.roleFitScore}
+        caption={roleFitLabel(workspace)}
+        icon={<Radar size={22} />}
+        accent="secondary"
       />
     </section>
   );
@@ -607,24 +606,17 @@ function ScoreOverviewDashboard({ workspace, onSelectCategory }) {
 }
 
 function ScoreTierCard({ workspace }) {
-  const roles = recommendedRoles(workspace);
   return (
     <article className="score-summary-card score-tier-card">
       <div className="score-tier-status">
         <CheckCircle2 size={18} />
-        <strong>{roleFitLabel(workspace)} - Ready for internship roles</strong>
+        <strong>{roleFitLabel(workspace)} for selected role</strong>
       </div>
       <p className="score-tier-fit">Role fit score: <b>{formatScore(workspace.roleFitScore)} / 100</b></p>
       <p>
-        This candidate fits the {workspace.tier || "Intern / Trainee"} level with high confidence.
-        Calibrated by module evidence, career stage, and role alignment.
+        This score reflects alignment with the selected {formatRole(workspace.targetRole)} role based on extracted
+        skills, projects, and role evidence.
       </p>
-      <div className="score-best-fit">
-        <span><Star size={15} /> Best fit - Recommended for</span>
-        <div>
-          {roles.map((role) => <b key={role}>{role}</b>)}
-        </div>
-      </div>
     </article>
   );
 }
@@ -936,11 +928,6 @@ function PostPipelineHero({ workspace, onOpenDetails, detailsOpen }) {
 
       <div className="hero-score-grid">
         <ScoreStat
-          label="Total Score"
-          score={workspace.totalScore}
-          caption={workspace.tier}
-        />
-        <ScoreStat
           label="Role Fit"
           score={workspace.roleFitScore}
           caption={workspace.roleMatchLabel}
@@ -1198,15 +1185,6 @@ function roleFitLabel(workspace) {
   if (score >= 70) return "Strong match";
   if (score >= 41) return "Developing match";
   return "Needs support";
-}
-
-function recommendedRoles(workspace) {
-  const role = formatRole(workspace.targetRole).toLowerCase();
-  if (role.includes("ai") || role.includes("ml") || role.includes("data")) {
-    return ["Junior ML Engineer", "AI Research Intern", "Data Science Trainee"];
-  }
-  const formatted = formatRole(workspace.targetRole);
-  return [`Junior ${formatted}`, `${formatted} Intern`, `${formatted} Trainee`];
 }
 
 function moduleScoreLabel(category) {
