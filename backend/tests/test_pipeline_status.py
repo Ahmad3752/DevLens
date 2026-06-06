@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.schemas.cv import CandidateProfile, Project, ScoreSummary
+from app.schemas.cv import CandidateProfile, CandidateResult, Project, ScoreSummary
 from app.services.category_views import apply_workspace_fields, build_category_views
 from app.services.pipeline import create_pipeline_status, load_pipeline_status, process_cv, update_stage
 from app.services.scoring.utils import make_module
@@ -125,6 +125,56 @@ class CategoryViewTests(unittest.TestCase):
 
 
 class PipelineLoggingTests(unittest.TestCase):
+    def _cached_result(self, candidate_id: str) -> CandidateResult:
+        profile = CandidateProfile(
+            target_role="ai_ml",
+            raw_cv_text="Cached CV text",
+            programming_languages=["Python"],
+        )
+        summary = ScoreSummary(
+            target_role="ai_ml",
+            overall_score=82,
+            overall_grade="Mid-Level Developer",
+            hiring_recommendation="Ready for interviews",
+            aggregate_confidence="high",
+            summary_narrative="Cached score.",
+        )
+        return CandidateResult(
+            candidate_id=candidate_id,
+            status="complete",
+            profile=profile,
+            summary=summary,
+            modules=[],
+            categories=[],
+        )
+
+    def test_process_cv_cache_hit_skips_extraction_and_scoring(self):
+        raw_text = "Cached CV text"
+        cached = self._cached_result("candidate-cache")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf_path = Path(tmp) / "cv.pdf"
+            pdf_path.write_bytes(b"%PDF")
+            with patch("app.services.pipeline.get_settings", return_value=DummySettings(Path(tmp))):
+                with patch("app.services.pipeline.extract_pdf_text", return_value=raw_text):
+                    with patch("app.services.pipeline.load_cached_score", return_value=cached) as load_cache:
+                        with patch("app.services.pipeline.extract_profile") as extract_profile:
+                            with patch("app.services.pipeline.run_scoring_graph") as run_graph:
+                                with patch("app.services.pipeline.store_score_cache") as store_cache:
+                                    with patch("app.services.pipeline.persist_candidate_score") as persist_score:
+                                        result = process_cv(pdf_path, "ai_ml", "candidate-cache")
+
+                status = load_pipeline_status("candidate-cache")
+
+        self.assertEqual(result.summary.overall_score, 82)
+        self.assertEqual(status.status, "complete")
+        load_cache.assert_called_once()
+        self.assertEqual(load_cache.call_args.args[1:], ("ai_ml", "candidate-cache"))
+        extract_profile.assert_not_called()
+        run_graph.assert_not_called()
+        store_cache.assert_not_called()
+        persist_score.assert_not_called()
+
     def test_process_cv_logs_milestones_without_raw_cv_text(self):
         secret_raw_text = "SECRET_RAW_CV_TEXT candidate private details"
         profile = CandidateProfile(
@@ -163,12 +213,7 @@ class PipelineLoggingTests(unittest.TestCase):
             summary_narrative="This CV scores 61/100 for the selected role.",
         )
 
-        def fake_graph(_profile, progress_callback=None):
-            if progress_callback:
-                progress_callback("module_start", "technical_skill", None)
-                progress_callback("module_complete", "technical_skill", module)
-                progress_callback("summarizer_start", None, None)
-                progress_callback("summarizer_complete", None, None)
+        def fake_graph(_profile):
             return [module], summary
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -176,15 +221,22 @@ class PipelineLoggingTests(unittest.TestCase):
             pdf_path.write_bytes(b"%PDF")
             with patch("app.services.pipeline.get_settings", return_value=DummySettings(Path(tmp))):
                 with patch("app.services.pipeline.extract_pdf_text", return_value=secret_raw_text):
-                    with patch("app.services.pipeline.extract_profile", return_value=profile):
-                        with patch("app.services.pipeline.run_scoring_graph", side_effect=fake_graph):
-                            with self.assertLogs("devlens.pipeline", level="INFO") as logs:
-                                result = process_cv(pdf_path, "ai_ml", "candidate-logs")
+                    with patch("app.services.pipeline.load_cached_score", return_value=None) as load_cache:
+                        with patch("app.services.pipeline.extract_profile", return_value=profile):
+                            with patch("app.services.pipeline.run_scoring_graph", side_effect=fake_graph) as run_graph:
+                                with patch("app.services.pipeline.store_score_cache", return_value=True) as store_cache:
+                                    with patch("app.services.pipeline.persist_candidate_score", return_value=None) as persist_score:
+                                        with self.assertLogs("devlens.pipeline", level="INFO") as logs:
+                                            result = process_cv(pdf_path, "ai_ml", "candidate-logs")
 
         joined = "\n".join(logs.output)
         self.assertEqual(result.status, "complete")
+        load_cache.assert_called_once()
+        run_graph.assert_called_once_with(profile)
+        store_cache.assert_called_once()
+        persist_score.assert_called_once()
         self.assertIn("Extraction started", joined)
-        self.assertIn("Scoring module completed", joined)
+        self.assertIn("Scoring completed", joined)
         self.assertIn("CV pipeline completed", joined)
         self.assertNotIn("SECRET_RAW_CV_TEXT", joined)
 

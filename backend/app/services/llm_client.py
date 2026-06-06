@@ -76,9 +76,9 @@ def _bedrock_llm():
     )
 
 
-def invoke_json(prompt: str) -> dict[str, Any]:
+def _invoke_json_with_order(prompt: str, factories, system: str = JSON_SYSTEM) -> dict[str, Any]:
     errors: list[str] = []
-    for factory in (_openrouter_llm, _bedrock_llm):
+    for factory in factories:
         provider = _provider_name(factory)
         try:
             logger.info("LLM provider attempt provider=%s", provider)
@@ -86,7 +86,7 @@ def invoke_json(prompt: str) -> dict[str, Any]:
             if llm is None:
                 logger.info("LLM provider skipped provider=%s reason=not_configured", provider)
                 continue
-            response = llm.invoke([("system", JSON_SYSTEM), ("user", prompt)])
+            response = llm.invoke([("system", system), ("user", prompt)])
             parsed = _extract_json(str(response.content))
             logger.info("LLM provider success provider=%s", provider)
             return parsed
@@ -95,6 +95,41 @@ def invoke_json(prompt: str) -> dict[str, Any]:
             logger.warning("LLM provider failed provider=%s error=%s", provider, safe)
             errors.append(f"{factory.__name__}: {safe}")
     raise RuntimeError("; ".join(errors) or "No LLM provider configured")
+
+
+def _invoke_model_with_order(prompt: str, model: Type[T], factories, system: str = JSON_SYSTEM) -> T:
+    errors: list[str] = []
+    for factory in factories:
+        provider = _provider_name(factory)
+        try:
+            logger.info("LLM provider attempt provider=%s mode=structured", provider)
+            llm = factory()
+            if llm is None:
+                logger.info("LLM provider skipped provider=%s reason=not_configured", provider)
+                continue
+            structured = llm.with_structured_output(model)
+            response = structured.invoke([("system", system), ("user", prompt)])
+            logger.info("LLM provider success provider=%s mode=structured", provider)
+            if isinstance(response, model):
+                return response
+            return model.model_validate(response)
+        except Exception as exc:
+            safe = _safe_error(exc)
+            logger.warning("LLM provider failed provider=%s mode=structured error=%s", provider, safe)
+            errors.append(f"{factory.__name__}: {safe}")
+    raise RuntimeError("; ".join(errors) or "No LLM provider configured")
+
+
+def invoke_json(prompt: str) -> dict[str, Any]:
+    return invoke_json_openrouter_first(prompt)
+
+
+def invoke_json_openrouter_first(prompt: str, system: str = JSON_SYSTEM) -> dict[str, Any]:
+    return _invoke_json_with_order(prompt, (_openrouter_llm, _bedrock_llm), system)
+
+
+def invoke_json_bedrock_first(prompt: str, system: str = JSON_SYSTEM) -> dict[str, Any]:
+    return _invoke_json_with_order(prompt, (_bedrock_llm, _openrouter_llm), system)
 
 
 def invoke_bedrock_json(prompt: str, system: str = JSON_SYSTEM) -> dict[str, Any]:
@@ -127,8 +162,16 @@ def invoke_bedrock_model(prompt: str, model: Type[T], system: str = JSON_SYSTEM)
         raise RuntimeError(f"_bedrock_llm_structured: {safe}") from exc
 
 
+def invoke_model_openrouter_first(prompt: str, model: Type[T], system: str = JSON_SYSTEM) -> T:
+    return _invoke_model_with_order(prompt, model, (_openrouter_llm, _bedrock_llm), system)
+
+
+def invoke_model_bedrock_first(prompt: str, model: Type[T], system: str = JSON_SYSTEM) -> T:
+    return _invoke_model_with_order(prompt, model, (_bedrock_llm, _openrouter_llm), system)
+
+
 def invoke_model(prompt: str, model: Type[BaseModel]) -> BaseModel:
-    return model.model_validate(invoke_json(prompt))
+    return invoke_model_openrouter_first(prompt, model)
 
 
 def provider_status() -> dict[str, Any]:

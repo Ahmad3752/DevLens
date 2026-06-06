@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.constants.roles import ROLE_FOCUS
 from app.schemas.cv import CandidateProfile, ModuleScore
-from app.services.llm_client import invoke_bedrock_model, invoke_json
+from app.services.llm_client import invoke_model_bedrock_first
 from app.services.scoring.utils import make_module
 
 
@@ -83,29 +83,8 @@ Profile without raw CV text:
 """
 
 
-def llm_score_module(key: str, profile: CandidateProfile, max_score: float, baseline: ModuleScore) -> ModuleScore:
-    if key in BEDROCK_FIRST_MODULES:
-        structured = invoke_bedrock_model(
-            _bedrock_prompt(key, profile, max_score, baseline),
-            StructuredModuleScore,
-            BEDROCK_SCORING_SYSTEM,
-        )
-        raw = structured.model_dump()
-        return make_module(
-            key=key,
-            score=structured.score,
-            max_score=max_score,
-            evidence=structured.evidence_found,
-            missing=structured.missing_evidence,
-            sub_scores=structured.sub_scores,
-            recommendations=structured.recommendations,
-            reasoning=structured.llm_reasoning,
-            method="llm",
-            confidence=structured.confidence,
-            raw=raw,
-        )
-
-    prompt = f"""
+def _generic_prompt(key: str, profile: CandidateProfile, max_score: float, baseline: ModuleScore) -> str:
+    return f"""
 Score the CV module "{key}" for target role "{profile.target_role}".
 Role focus: {ROLE_FOCUS.get(profile.target_role, profile.target_role)}
 
@@ -129,17 +108,22 @@ Baseline score to calibrate from:
 Profile:
 {json.dumps(profile.model_dump(exclude={"raw_cv_text"}), ensure_ascii=True)}
 """
-    raw = invoke_json(prompt)
+
+
+def llm_score_module(key: str, profile: CandidateProfile, max_score: float, baseline: ModuleScore) -> ModuleScore:
+    prompt = _bedrock_prompt(key, profile, max_score, baseline) if key in BEDROCK_FIRST_MODULES else _generic_prompt(key, profile, max_score, baseline)
+    structured = invoke_model_bedrock_first(prompt, StructuredModuleScore, BEDROCK_SCORING_SYSTEM)
+    raw = structured.model_dump()
     return make_module(
         key=key,
-        score=float(raw.get("score", baseline.score)),
+        score=structured.score,
         max_score=max_score,
-        evidence=[str(x) for x in raw.get("evidence_found", baseline.evidence_found)],
-        missing=[str(x) for x in raw.get("missing_evidence", baseline.missing_evidence)],
-        sub_scores=raw.get("sub_scores", baseline.sub_scores) or {},
-        recommendations=[str(x) for x in raw.get("recommendations", baseline.recommendations)],
-        reasoning=str(raw.get("llm_reasoning", "")),
+        evidence=structured.evidence_found,
+        missing=structured.missing_evidence,
+        sub_scores=structured.sub_scores,
+        recommendations=structured.recommendations,
+        reasoning=structured.llm_reasoning,
         method="hybrid" if key in HYBRID_MODULES else "llm",
-        confidence=raw.get("confidence", baseline.confidence),
+        confidence=structured.confidence,
         raw=raw,
     )

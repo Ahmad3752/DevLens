@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildTabs, normalizeWorkspace, scoreBand } from "./workspaceUtils.mjs";
+import { buildScoreReportTabs, buildTabs, normalizeWorkspace, scoreBand, serializeJobFilters } from "./workspaceUtils.mjs";
 
 test("scoreBand uses the exact requested thresholds", () => {
   assert.equal(scoreBand(54).className, "tone-red");
@@ -48,4 +48,28 @@ test("buildTabs derives tabs from category array with overview first", () => {
   const tabs = buildTabs(categories);
 
   assert.deepEqual(tabs.map((tab) => tab.key), ["overview", "technical_skill", "project_work"]);
+});
+
+test("buildScoreReportTabs adds Relevant Jobs after score sections", () => {
+  const tabs = buildScoreReportTabs([{ key: "role_fit", name: "Role Fit" }]);
+
+  assert.deepEqual(tabs.map((tab) => tab.key), ["overview", "role_fit", "relevant_jobs"]);
+});
+
+test("serializeJobFilters keeps only job browser filters", () => {
+  const query = serializeJobFilters({
+    city: "Karachi",
+    employment_type: "full-time",
+    experience_level: "junior",
+    workplace_type: "hybrid",
+    is_remote: false,
+    is_internship: true,
+    tech_stack: "Python, FastAPI, ",
+    limit: 25,
+  });
+
+  assert.equal(
+    query,
+    "employment_type=full-time&experience_level=junior&workplace_type=hybrid&limit=25",
+  );
 });

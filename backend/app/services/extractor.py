@@ -4,7 +4,7 @@ from datetime import date
 from typing import Iterable
 
 from app.schemas.cv import CandidateProfile, Project, Publication
-from app.services.llm_client import invoke_model
+from app.services.llm_client import invoke_model_openrouter_first
 
 
 VOCAB = {
@@ -365,7 +365,7 @@ Baseline heuristic extraction:
 CV text:
 {raw_text[:18000]}
 """
-    profile = invoke_model(prompt, CandidateProfile)
+    profile = invoke_model_openrouter_first(prompt, CandidateProfile)
     profile.target_role = target_role
     profile.raw_cv_text = raw_text
     profile.projects = _sanitize_projects(profile.projects, raw_text, profile.name) or baseline.projects

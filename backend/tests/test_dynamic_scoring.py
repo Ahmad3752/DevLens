@@ -166,7 +166,7 @@ class BedrockScoringTests(unittest.TestCase):
             ],
         )
 
-    def test_project_work_uses_bedrock_structured_response(self):
+    def test_project_work_uses_bedrock_first_structured_response(self):
         profile = self._baseline_profile()
         baseline = project_work(profile, 22)
         response = {
@@ -178,7 +178,7 @@ class BedrockScoringTests(unittest.TestCase):
             "recommendations": ["Add measurable impact"],
             "llm_reasoning": "Bedrock judged the project evidence.",
         }
-        with patch("app.services.scoring.llm_modules.invoke_bedrock_model", return_value=llm_modules.StructuredModuleScore.model_validate(response)):
+        with patch("app.services.scoring.llm_modules.invoke_model_bedrock_first", return_value=llm_modules.StructuredModuleScore.model_validate(response)):
             scored = llm_modules.llm_score_module("project_work", profile, 22, baseline)
         self.assertEqual(scored.score, 12.5)
         self.assertEqual(scored.scoring_method, "llm")
@@ -187,7 +187,7 @@ class BedrockScoringTests(unittest.TestCase):
     def test_invalid_bedrock_response_falls_back_in_score_one(self):
         llm_modules.LLM_MODULES.add("project_work")
         profile = self._baseline_profile()
-        with patch("app.services.scoring.llm_modules.invoke_bedrock_model", side_effect=ValueError("invalid structured output")):
+        with patch("app.services.scoring.llm_modules.invoke_model_bedrock_first", side_effect=ValueError("invalid structured output")):
             scored = score_one("project_work", profile, 22)
         self.assertEqual(scored.scoring_method, "deterministic")
         self.assertIn("LLM scoring unavailable", scored.llm_reasoning)
@@ -195,7 +195,7 @@ class BedrockScoringTests(unittest.TestCase):
     def test_unavailable_bedrock_falls_back_in_score_one(self):
         llm_modules.HYBRID_MODULES.add("professional_experience")
         profile = self._baseline_profile()
-        with patch("app.services.scoring.llm_modules.invoke_bedrock_model", side_effect=RuntimeError("aws unavailable")):
+        with patch("app.services.scoring.llm_modules.invoke_model_bedrock_first", side_effect=RuntimeError("aws and openrouter unavailable")):
             scored = score_one("professional_experience", profile, 18)
         self.assertEqual(scored.scoring_method, "hybrid")
         self.assertIn("LLM scoring unavailable", scored.llm_reasoning)

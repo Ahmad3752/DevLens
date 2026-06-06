@@ -64,6 +64,8 @@ export function normalizeCategories(result) {
   return categoryViews.map((category) => ({
     key: category.key || category.module_key,
     name: category.name || category.label || category.module_label,
+    score: Number(category.score || 0),
+    max_score: Number(category.max_score || 0),
     normalized_score: Number(category.normalized_score || 0),
     weight: category.weight ?? ((category.max_score || 0) / 100),
     grade_label: category.grade_label || scoreBand(category.normalized_score).label,
@@ -79,4 +81,33 @@ export function normalizeCategories(result) {
 
 export function buildTabs(categories) {
   return [{ key: "overview", name: "Overview" }, ...categories];
+}
+
+export function buildScoreReportTabs(categories) {
+  return [...buildTabs(categories), { key: "relevant_jobs", name: "Relevant Jobs" }];
+}
+
+export const DEFAULT_JOB_FILTERS = {
+  employment_type: "",
+  experience_level: "",
+  workplace_type: "",
+  limit: 50,
+};
+
+export function serializeJobFilters(filters = {}) {
+  const params = new URLSearchParams();
+  const merged = { ...DEFAULT_JOB_FILTERS, ...filters };
+  const entries = [
+    ["employment_type", merged.employment_type],
+    ["experience_level", merged.experience_level],
+    ["workplace_type", merged.workplace_type],
+    ["limit", merged.limit],
+  ];
+
+  entries.forEach(([key, value]) => {
+    if (value === "" || value === null || value === undefined) return;
+    params.set(key, String(value));
+  });
+
+  return params.toString();
 }

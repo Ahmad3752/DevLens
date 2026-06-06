@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     openrouter_key: str | None = Field(default=None, alias="OPENROUTER_KEY")
     openrouter_model: str = Field(default="openai/gpt-4o-mini", alias="OPENROUTER_MODEL")
     openrouter_api_base: str = Field(default="https://openrouter.ai/api/v1", alias="OPENROUTER_API_BASE")
+    supabase_url: str | None = Field(default=None, alias="SUPABASE_URL")
+    supabase_service_role_key: str | None = Field(default=None, alias="SUPABASE_SERVICE_ROLE_KEY")
+    devlens_redis_url: str | None = Field(default=None, alias="DEVLENS_REDIS_URL")
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
     bedrock_model_id: str = Field(default="us.anthropic.claude-haiku-4-5-20251001-v1:0", alias="BEDROCK_MODEL_ID")
     storage_dir: Path = Path(__file__).resolve().parents[1] / "storage"
@@ -29,5 +33,11 @@ def get_settings() -> Settings:
     elif base and not base.endswith("/api/v1"):
         base = f"{base}/api/v1"
     settings.openrouter_api_base = base or "https://openrouter.ai/api/v1"
+    if settings.supabase_url:
+        settings.supabase_url = settings.supabase_url.strip().rstrip("/")
+    if settings.devlens_redis_url:
+        settings.devlens_redis_url = settings.devlens_redis_url.strip()
+    if settings.redis_url:
+        settings.redis_url = settings.redis_url.strip()
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
     return settings

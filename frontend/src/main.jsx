@@ -2,24 +2,46 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
+  ArrowLeft,
   BarChart3,
+  BookOpen,
   BrainCircuit,
+  Briefcase,
   CheckCircle2,
   ChevronDown,
   Circle,
   Code2,
+  ExternalLink,
+  FileText,
   FileSearch,
+  Gauge,
   Layers3,
+  Lightbulb,
   Loader2,
+  MapPin,
+  Printer,
   Radar,
+  RefreshCw,
+  SlidersHorizontal,
   Sparkles,
+  Star,
+  Tags,
+  TrendingUp,
   Trophy,
   UploadCloud,
+  Wrench,
 } from "lucide-react";
 import "./styles.css";
-import { buildTabs, normalizeWorkspace, scoreBand } from "./workspaceUtils.mjs";
+import {
+  DEFAULT_JOB_FILTERS,
+  buildScoreReportTabs,
+  buildTabs,
+  normalizeWorkspace,
+  scoreBand,
+  serializeJobFilters,
+} from "./workspaceUtils.mjs";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 
 const FALLBACK_ROLES = [
   ["backend", "Backend Developer"],
@@ -36,8 +58,8 @@ const FALLBACK_ROLES = [
 const DEFAULT_STAGES = [
   { key: "cv_upload", label: "CV Upload", status: "idle", message: "Waiting for CV upload." },
   { key: "extraction", label: "Extraction Agent", status: "idle", message: "Waiting for extraction agent." },
-  { key: "scoring", label: "Scoring Agent", status: "idle", message: "Waiting for scoring agent." },
-  { key: "summarizer", label: "Summarizer Agent", status: "idle", message: "Waiting for summarizer agent." },
+  { key: "scoring", label: "Scoring Agent", status: "idle", message: "Waiting to score all categories." },
+  { key: "summarizer", label: "Summarizer Agent", status: "idle", message: "Waiting to prepare the final summary." },
   { key: "results_ready", label: "Results Ready", status: "idle", message: "Waiting for final results." },
 ];
 
@@ -172,6 +194,20 @@ function App() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (result && detailsOpen) {
+    return (
+      <ScoringDashboard
+        result={result}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onBack={() => {
+          setActiveTab("overview");
+          setDetailsOpen(false);
+        }}
+      />
+    );
   }
 
   return (
@@ -335,7 +371,7 @@ function WaitingPanel({ stages, status }) {
   return (
     <div className="empty-state">
       {active ? <Loader2 className="spin" size={46} /> : <FileSearch size={48} />}
-      <h2>{active ? active.label : "Your scoring workspace is ready."}</h2>
+      <h2>{active?.key === "scoring" ? "Scoring is running." : active ? active.label : "Your scoring workspace is ready."}</h2>
       <p>{active ? active.message : "Upload a CV to begin."}</p>
       <div className="progress-meter" aria-label="Pipeline progress">
         <span style={{ width: `${(completed / total) * 100}%` }} />
@@ -399,6 +435,516 @@ function ResultsWorkspace({ result, detailsOpen, setDetailsOpen, activeTab, setA
         </section>
       )}
     </div>
+  );
+}
+
+function ScoringDashboard({ result, activeTab, setActiveTab, onBack }) {
+  const workspace = useMemo(() => normalizeWorkspace(result), [result]);
+  const tabs = useMemo(() => buildScoreReportTabs(workspace.categories), [workspace.categories]);
+  const selectedTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : "overview";
+  const active = selectedTab === "overview"
+    ? { key: "overview", name: "Overview" }
+    : selectedTab === "relevant_jobs"
+      ? { key: "relevant_jobs", name: "Relevant Jobs" }
+    : workspace.categories.find((category) => category.key === selectedTab) || tabs[0];
+
+  return (
+    <main className="score-dashboard">
+      <ScoreTopbar
+        workspace={workspace}
+        activeTab={selectedTab}
+        setActiveTab={setActiveTab}
+        onBack={onBack}
+      />
+      <section className="score-main">
+        <ScoreTabBar tabs={tabs} activeTab={selectedTab} setActiveTab={setActiveTab} />
+        <ScoreReportTopSummary workspace={workspace} />
+        <div className="score-content-stage" key={active.key}>
+          {selectedTab === "relevant_jobs" ? (
+            <RelevantJobsDashboard result={result} workspace={workspace} />
+          ) : active.key === "overview" ? (
+            <ScoreOverviewDashboard workspace={workspace} onSelectCategory={setActiveTab} />
+          ) : (
+            <ScoreCategoryDashboard category={active} />
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ScoreTopbar({ workspace, activeTab, setActiveTab, onBack }) {
+  const candidateName = reportCandidateName(workspace);
+  const initials = candidateInitials(candidateName);
+  return (
+    <header className="score-topbar">
+      <div className="score-brand">
+        <BrainCircuit size={25} />
+        <strong>DevLens</strong>
+      </div>
+      <div className="score-candidate-chip">
+        <div>
+          <strong>{candidateName}</strong>
+          <span>{formatRole(workspace.targetRole)}</span>
+        </div>
+        <b>{initials}</b>
+      </div>
+      <div className="score-topbar-actions">
+        <button
+          className={`score-button score-button-jobs ${activeTab === "relevant_jobs" ? "active" : ""}`}
+          type="button"
+          onClick={() => setActiveTab("relevant_jobs")}
+        >
+          <Briefcase size={18} /> Relevant Jobs
+        </button>
+        <button className="score-button score-button-muted" type="button" onClick={() => window.print()}>
+          <Printer size={18} /> Print Report
+        </button>
+        <button className="score-button score-button-primary" type="button" onClick={onBack}>
+          <ArrowLeft size={18} /> Back to Upload
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function ScoreTabBar({ tabs, activeTab, setActiveTab }) {
+  return (
+    <nav className="score-tabbar" aria-label="Score report sections">
+      {tabs.filter((tab) => tab.key !== "relevant_jobs").map((tab) => (
+        <button
+          key={tab.key}
+          className={`score-tab ${tab.key === activeTab ? "active" : ""}`}
+          type="button"
+          onClick={() => setActiveTab(tab.key)}
+        >
+          {categoryIcon(tab.key, 17)}
+          <span>{tab.name}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function ScoreReportTopSummary({ workspace }) {
+  return (
+    <section className="score-report-top">
+      <PersistentTotalScore workspace={workspace} />
+      <article className="score-report-context">
+        <div className="score-ready-chip"><CheckCircle2 size={18} /> Results ready</div>
+        <div className="score-report-copy">
+          <h1>CV Score Report</h1>
+          <p>{reportCandidateName(workspace)} - {formatRole(workspace.targetRole)}</p>
+        </div>
+        <div className="score-report-fit">
+          <span>Role fit</span>
+          <strong>{formatScore(workspace.roleFitScore)} / 100</strong>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function ScoreMetricCard({ label, score, caption, icon, accent = "primary" }) {
+  const band = accent === "secondary" ? { className: "tone-green", label: "Strong" } : scoreBand(score);
+  return (
+    <article className={`score-summary-card score-metric-card ${band.className}`}>
+      <div className="score-card-label">
+        <span>{label}</span>
+        {icon}
+      </div>
+      <div className="score-metric-value">
+        <strong>{formatScore(score)}</strong>
+        <span>/100</span>
+      </div>
+      <ScoreBandBadge score={score} label={caption || band.label} />
+    </article>
+  );
+}
+
+function PersistentTotalScore({ workspace }) {
+  const totalBand = scoreBand(workspace.totalScore);
+  return (
+    <section className="score-persistent-total" aria-label="Total score">
+      <ScoreMetricCard
+        label="Total Score"
+        score={workspace.totalScore}
+        caption={workspace.tier || totalBand.label}
+        icon={<TrendingUp size={22} />}
+      />
+    </section>
+  );
+}
+
+function ScoreOverviewDashboard({ workspace, onSelectCategory }) {
+  return (
+    <section className="score-overview">
+      <section className="score-summary-grid score-overview-summary">
+        <ScoreMetricCard
+          label="Role Fit"
+          score={workspace.roleFitScore}
+          caption={roleFitLabel(workspace)}
+          icon={<Radar size={22} />}
+          accent="secondary"
+        />
+        <ScoreTierCard workspace={workspace} />
+      </section>
+
+      <section className="score-category-summary">
+        <div className="score-panel-title"><Layers3 size={19} /> Quick Module Breakdown</div>
+        <div className="score-module-pill-grid">
+          {workspace.categories.map((category) => (
+            <button
+              className={`score-module-pill ${scoreBand(category.normalized_score).className}`}
+              key={category.key}
+              type="button"
+              onClick={() => onSelectCategory(category.key)}
+            >
+              {categoryIcon(category.key, 17)}
+              <span>{category.name}</span>
+              <strong>{moduleScoreLabel(category)}</strong>
+            </button>
+          ))}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function ScoreTierCard({ workspace }) {
+  const roles = recommendedRoles(workspace);
+  return (
+    <article className="score-summary-card score-tier-card">
+      <div className="score-tier-status">
+        <CheckCircle2 size={18} />
+        <strong>{roleFitLabel(workspace)} - Ready for internship roles</strong>
+      </div>
+      <p className="score-tier-fit">Role fit score: <b>{formatScore(workspace.roleFitScore)} / 100</b></p>
+      <p>
+        This candidate fits the {workspace.tier || "Intern / Trainee"} level with high confidence.
+        Calibrated by module evidence, career stage, and role alignment.
+      </p>
+      <div className="score-best-fit">
+        <span><Star size={15} /> Best fit - Recommended for</span>
+        <div>
+          {roles.map((role) => <b key={role}>{role}</b>)}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ScoreInsightPanel({ title, icon, tone, items, empty }) {
+  return (
+    <section className={`score-panel score-insight-panel ${tone}`}>
+      <div className="score-panel-title">{icon}{title}</div>
+      <div className="score-insight-list">
+        {items.length ? items.map((item, index) => (
+          <article className="score-insight-item" key={`${item.title}-${index}`}>
+            {tone === "good" ? <Star size={16} /> : <AlertTriangle size={16} />}
+            <div>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </div>
+          </article>
+        )) : <p className="muted">{empty}</p>}
+      </div>
+    </section>
+  );
+}
+
+function DashboardScoreBars({ categories }) {
+  if (!categories.length) return <p className="muted">No category scores were returned.</p>;
+  return (
+    <div className="dashboard-score-bars">
+      {categories.map((category, index) => (
+        <div className={`dashboard-score-row ${scoreBand(category.normalized_score).className}`} key={category.key} style={{ "--delay": `${index * 55}ms` }}>
+          <div>
+            <span>{category.name}</span>
+            <b>{formatScore(category.normalized_score)}%</b>
+          </div>
+          <i><strong style={{ "--score": `${clampScore(category.normalized_score)}%` }} /></i>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScoreCategoryDashboard({ category }) {
+  const band = scoreBand(category.normalized_score);
+  return (
+    <section className="score-category-report">
+      <header className={`score-category-report-hero ${band.className}`}>
+        <ScoreRing score={category.normalized_score} />
+        <div>
+          <p className="eyebrow">Module Analysis</p>
+          <div className="score-category-titleline">
+            <h2>{category.name}</h2>
+            <div className="score-module-score-badge">
+              <span>Module score</span>
+              <strong>{moduleScoreLabel(category)}</strong>
+            </div>
+          </div>
+          <div className="score-category-badges">
+            <ScoreBandBadge score={category.normalized_score} label={category.grade_label || band.label} />
+          </div>
+          <p>{category.verdict_sentence || category.score_narrative || "Module evidence was scored from the extracted CV content."}</p>
+        </div>
+      </header>
+
+      <div className="score-category-grid">
+        <div className="score-stack">
+          <section className="score-panel">
+            <div className="score-panel-title"><Gauge size={19} /> Sub-Scores</div>
+            <SubScores subScores={category.sub_scores || {}} />
+          </section>
+
+          <section className={`score-panel score-master-narrative ${band.className}`}>
+            <div className="score-panel-title"><Trophy size={19} /> Score Narrative</div>
+            <p>{category.score_narrative || category.verdict_sentence || "No score narrative was returned for this section."}</p>
+          </section>
+        </div>
+
+        <div className="score-stack score-wide-stack">
+          <section className="score-panel">
+            <div className="score-panel-title"><FileText size={19} /> Extracted CV Evidence</div>
+            <EvidenceCards items={evidenceItemsForCategory(category)} />
+          </section>
+
+          <div className="score-two-column">
+            <section className="score-panel score-disclosure-panel good">
+              <div className="score-panel-title"><CheckCircle2 size={19} /> Strengths Found</div>
+              <DisclosureList items={category.evidence || []} empty="No strengths were returned for this category." />
+            </section>
+            <section className="score-panel score-disclosure-panel bad">
+              <div className="score-panel-title"><AlertTriangle size={19} /> Missing Evidence</div>
+              <DisclosureList items={category.missing_evidence || []} empty="No missing evidence was returned for this category." />
+            </section>
+          </div>
+
+          <section className="score-panel score-disclosure-panel warn">
+            <div className="score-panel-title"><Lightbulb size={19} /> Recommendations</div>
+            <DisclosureList items={category.recommendations || []} empty="No recommendations were returned for this category." />
+          </section>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ScoreRing({ score }) {
+  const value = clampScore(score);
+  const ringClass = value <= 40 ? "ring-low" : value <= 69 ? "ring-mid" : "ring-high";
+  return (
+    <div className={`score-ring-meter ${ringClass}`} style={{ "--score-angle": `${value * 3.6}deg` }}>
+      <strong>{formatScore(score)}</strong>
+      <span>/100</span>
+    </div>
+  );
+}
+
+function ScoreBandBadge({ score, label }) {
+  return <span className={`score-band-badge ${scoreBand(score).className}`}>{label}</span>;
+}
+
+function DisclosureList({ items, empty }) {
+  if (!items.length) return <p className="muted">{empty}</p>;
+  return (
+    <div className="score-disclosure-list">
+      {items.slice(0, 6).map((item, index) => {
+        const text = formatDetail(item);
+        return (
+          <details className="score-disclosure" key={`${text}-${index}`} open={index === 0}>
+            <summary>
+              <span>{truncateText(text, 86)}</span>
+              <ChevronDown size={17} />
+            </summary>
+            <p>{text}</p>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+function RelevantJobsDashboard({ result, workspace }) {
+  const [filters, setFilters] = useState(DEFAULT_JOB_FILTERS);
+  const [jobsState, setJobsState] = useState({ status: "idle", jobs: [], error: "", cacheStatus: "", metadata: null });
+  const [refreshKey, setRefreshKey] = useState(0);
+  const candidateId = result?.candidate_id;
+  const query = useMemo(() => serializeJobFilters(filters), [filters]);
+
+  useEffect(() => {
+    if (!candidateId) return;
+    let cancelled = false;
+
+    async function loadJobs() {
+      setJobsState((current) => ({ ...current, status: "loading", error: "" }));
+      try {
+        const response = await fetch(`${API_URL}/candidates/${candidateId}/jobs${query ? `?${query}` : ""}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Could not load relevant jobs.");
+        if (cancelled) return;
+        setJobsState({
+          status: "success",
+          jobs: Array.isArray(data.jobs) ? data.jobs : [],
+          error: "",
+          cacheStatus: data.cache_status || "",
+          metadata: data.metadata || null,
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setJobsState({ status: "error", jobs: [], error: err.message || "Could not load relevant jobs.", cacheStatus: "", metadata: null });
+        }
+      }
+    }
+
+    loadJobs();
+    return () => {
+      cancelled = true;
+    };
+  }, [candidateId, query, refreshKey]);
+
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetFilters() {
+    setFilters(DEFAULT_JOB_FILTERS);
+  }
+
+  return (
+    <section className="jobs-dashboard">
+      <header className="jobs-hero">
+        <div>
+          <p className="eyebrow">Relevant Jobs</p>
+          <h2>{formatRole(workspace.targetRole)} roles</h2>
+          <p>{jobsState.status === "success" ? `${jobsState.jobs.length} active role${jobsState.jobs.length === 1 ? "" : "s"} found` : "Active roles from Supabase"}</p>
+        </div>
+        <div className="jobs-hero-actions">
+          {jobsState.cacheStatus && <span className="cache-chip">Cache {jobsState.cacheStatus}</span>}
+          <button className="score-button score-button-muted" type="button" onClick={() => setRefreshKey((value) => value + 1)}>
+            <RefreshCw size={18} /> Refresh
+          </button>
+        </div>
+      </header>
+
+      <section className="score-panel jobs-filter-panel">
+        <div className="score-panel-title"><SlidersHorizontal size={19} /> Filters</div>
+        <div className="jobs-filter-grid">
+          <label>
+            <span>Employment</span>
+            <select value={filters.employment_type} onChange={(event) => updateFilter("employment_type", event.target.value)}>
+              <option value="">Any type</option>
+              <option value="full-time">Full-time</option>
+              <option value="part-time">Part-time</option>
+              <option value="internship">Internship</option>
+              <option value="contract">Contract</option>
+              <option value="freelance">Freelance</option>
+            </select>
+          </label>
+          <label>
+            <span>Level</span>
+            <select value={filters.experience_level} onChange={(event) => updateFilter("experience_level", event.target.value)}>
+              <option value="">Any level</option>
+              <option value="junior">Junior</option>
+              <option value="mid">Mid</option>
+              <option value="senior">Senior</option>
+              <option value="lead">Lead</option>
+            </select>
+          </label>
+          <label>
+            <span>Workplace</span>
+            <select value={filters.workplace_type} onChange={(event) => updateFilter("workplace_type", event.target.value)}>
+              <option value="">Any workplace</option>
+              <option value="onsite">Onsite</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="remote">Remote</option>
+            </select>
+          </label>
+          <button className="score-button score-button-muted" type="button" onClick={resetFilters}>
+            <RefreshCw size={18} /> Reset
+          </button>
+        </div>
+      </section>
+
+      <JobsResultState state={jobsState} onRetry={() => setRefreshKey((value) => value + 1)} />
+    </section>
+  );
+}
+
+function JobsResultState({ state, onRetry }) {
+  if (state.status === "loading" || state.status === "idle") {
+    return (
+      <section className="score-panel jobs-state-panel">
+        <Loader2 className="spin" size={34} />
+        <h3>Loading relevant jobs</h3>
+        <p>Checking active Supabase jobs for the selected CV role.</p>
+      </section>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <section className="score-panel jobs-state-panel error-state">
+        <AlertTriangle size={34} />
+        <h3>Jobs are not available right now</h3>
+        <p>{state.error}</p>
+        <button className="score-button score-button-primary" type="button" onClick={onRetry}>
+          <RefreshCw size={18} /> Retry
+        </button>
+      </section>
+    );
+  }
+
+  if (!state.jobs.length) {
+    return (
+      <section className="score-panel jobs-state-panel">
+        <Briefcase size={34} />
+        <h3>No matching active jobs</h3>
+        <p>Try resetting employment, level, or workplace filters.</p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="jobs-list">
+      {state.jobs.map((job) => <JobCard key={job.id || job.url} job={job} />)}
+    </div>
+  );
+}
+
+function JobCard({ job }) {
+  return (
+    <article className="job-result-card">
+      <div className="job-result-main">
+        <div className="job-title-row">
+          <div>
+            <h3>{job.title}</h3>
+            <p>{job.company}</p>
+          </div>
+        </div>
+
+        <div className="job-meta-row">
+          <span><MapPin size={15} /> {formatJobLocation(job)}</span>
+          <span><Briefcase size={15} /> {formatJobType(job)}</span>
+          <span><Tags size={15} /> {job.platform || "source"}</span>
+        </div>
+
+        <div className="job-foot-row">
+          <span>{formatSalary(job)}</span>
+          <span>{formatJobDate(job.posted_at || job.scraped_at)}</span>
+        </div>
+      </div>
+
+      <aside className="job-result-side">
+        {job.url && (
+          <a className="score-button score-button-primary job-apply-link" href={job.url} target="_blank" rel="noreferrer">
+            <ExternalLink size={17} /> Open
+          </a>
+        )}
+      </aside>
+    </article>
   );
 }
 
@@ -633,7 +1179,7 @@ function SubScore({ name, value }) {
   const max = Number(data.max || 0);
   const percent = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
   return (
-    <div className="subscore">
+    <div className={`subscore ${scoreBand(percent).className}`}>
       <div>
         <strong>{titleize(name)}</strong>
         {data.reasoning && <p>{data.reasoning}</p>}
@@ -642,6 +1188,170 @@ function SubScore({ name, value }) {
       <i><b style={{ width: `${percent}%` }} /></i>
     </div>
   );
+}
+
+function categoryIcon(key, size = 18) {
+  const icons = {
+    overview: <BarChart3 size={size} />,
+    role_fit: <Radar size={size} />,
+    technical_skill: <Code2 size={size} />,
+    technical_skills: <Code2 size={size} />,
+    project_work: <Layers3 size={size} />,
+    professional_experience: <Briefcase size={size} />,
+    engineering_practices: <Wrench size={size} />,
+    education_certifications: <BookOpen size={size} />,
+    research: <FileSearch size={size} />,
+    cv_quality: <FileText size={size} />,
+    relevant_jobs: <Briefcase size={size} />,
+  };
+  return icons[key] || <Circle size={size} />;
+}
+
+function reportCandidateName(workspace) {
+  const name = String(workspace.candidateName || "").trim();
+  return name && name.toLowerCase() !== "candidate" ? name : "Abdul Moiz";
+}
+
+function candidateInitials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return parts.length ? parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") : "AM";
+}
+
+function roleFitLabel(workspace) {
+  const score = Number(workspace.roleFitScore || 0);
+  if (score >= 70) return "Strong match";
+  if (score >= 41) return "Developing match";
+  return "Needs support";
+}
+
+function recommendedRoles(workspace) {
+  const role = formatRole(workspace.targetRole).toLowerCase();
+  if (role.includes("ai") || role.includes("ml") || role.includes("data")) {
+    return ["Junior ML Engineer", "AI Research Intern", "Data Science Trainee"];
+  }
+  const formatted = formatRole(workspace.targetRole);
+  return [`Junior ${formatted}`, `${formatted} Intern`, `${formatted} Trainee`];
+}
+
+function moduleScoreLabel(category) {
+  const score = Number(category.score);
+  const max = Number(category.max_score);
+  if (Number.isFinite(score) && Number.isFinite(max) && max > 0) {
+    return `${formatScore(score)}/${formatScore(max)}`;
+  }
+
+  const totals = Object.values(category.sub_scores || {}).reduce((acc, item) => {
+    if (!item || typeof item !== "object") return acc;
+    const itemScore = Number(item.score);
+    const itemMax = Number(item.max);
+    if (!Number.isFinite(itemScore) || !Number.isFinite(itemMax) || itemMax <= 0) return acc;
+    return {
+      score: acc.score + itemScore,
+      max: acc.max + itemMax,
+    };
+  }, { score: 0, max: 0 });
+
+  if (totals.max > 0) {
+    return `${formatScore(totals.score)}/${formatScore(totals.max)}`;
+  }
+
+  return `${formatScore(category.normalized_score)}/100`;
+}
+
+function formatRole(role) {
+  const value = String(role || "").trim();
+  if (!value) return "Selected Role";
+  return titleize(value)
+    .replace(/\bAi Ml\b/g, "AI/ML")
+    .replace(/\bQa\b/g, "QA")
+    .replace(/\bCv\b/g, "CV");
+}
+
+function formatJobLocation(job) {
+  return job.city || job.location_raw || job.country || "Pakistan";
+}
+
+function formatJobType(job) {
+  const parts = [
+    job.employment_type && job.employment_type !== "unknown" ? titleize(job.employment_type) : "",
+    job.experience_level && job.experience_level !== "unknown" ? titleize(job.experience_level) : "",
+    job.workplace_type && job.workplace_type !== "unknown" ? titleize(job.workplace_type) : "",
+  ].filter(Boolean);
+  if (job.is_internship && !parts.some((part) => part.toLowerCase().includes("intern"))) {
+    parts.unshift("Internship");
+  }
+  return parts.length ? parts.join(" / ") : "Job";
+}
+
+function formatSalary(job) {
+  if (job.salary_raw) return job.salary_raw;
+  if (job.salary_min || job.salary_max) {
+    const currency = job.salary_currency || "PKR";
+    const min = job.salary_min ? Number(job.salary_min).toLocaleString() : "";
+    const max = job.salary_max ? Number(job.salary_max).toLocaleString() : "";
+    const range = min && max ? `${min} - ${max}` : min || max;
+    const period = job.salary_period && job.salary_period !== "unknown" ? ` / ${job.salary_period}` : "";
+    return `${currency} ${range}${period}`;
+  }
+  return "Salary not listed";
+}
+
+function formatJobDate(value) {
+  if (!value) return "Freshness unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Freshness unknown";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function buildStrengthItems(categories) {
+  return [...categories]
+    .sort((a, b) => Number(b.normalized_score || 0) - Number(a.normalized_score || 0))
+    .filter((category) => category.evidence?.length || category.score_narrative || category.verdict_sentence)
+    .slice(0, 4)
+    .map((category) => ({
+      title: category.name,
+      body: truncateText(category.evidence?.[0] || category.score_narrative || category.verdict_sentence, 150),
+    }));
+}
+
+function buildImprovementItems(categories) {
+  return [...categories]
+    .sort((a, b) => Number(a.normalized_score || 0) - Number(b.normalized_score || 0))
+    .map((category) => {
+      const body = category.missing_evidence?.[0] || category.recommendations?.[0] || (
+        Number(category.normalized_score || 0) < 70 ? category.verdict_sentence || category.score_narrative : ""
+      );
+      return body ? { title: category.name, body: truncateText(body, 150) } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function categorySnippet(category) {
+  return truncateText(
+    category.verdict_sentence
+      || category.score_narrative
+      || category.evidence?.[0]
+      || `${scoreBand(category.normalized_score).label} score in this section.`,
+    82,
+  );
+}
+
+function evidenceItemsForCategory(category) {
+  if (category.extracted_items?.length) return category.extracted_items;
+  if (category.evidence?.length) {
+    return category.evidence.map((item, index) => ({
+      title: `Evidence ${index + 1}`,
+      body: item,
+    }));
+  }
+  return [];
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value || "").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
 function DetailTable({ details }) {

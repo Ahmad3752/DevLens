@@ -11,7 +11,9 @@ from app.schemas.cv import CandidatePipelineStatus, CandidateResult, PipelineSta
 from app.services.category_views import apply_workspace_fields, build_category_views
 from app.services.extractor import extract_profile
 from app.services.pdf_parser import extract_pdf_text
+from app.services.score_cache import SCORE_CACHE_TTL_SECONDS, load_cached_score, store_score_cache
 from app.services.scoring.graph import run_scoring_graph
+from app.services.supabase_scores import compute_cv_hash, persist_candidate_score
 
 
 logger = logging.getLogger("devlens.pipeline")
@@ -166,6 +168,38 @@ def process_cv(pdf_path: Path, target_role: str, candidate_id: str | None = None
             update_stage(candidate_id, "extraction", "in_progress", "Parsing CV text and extracting structured profile.", target_role=target_role)
         logger.info("Extraction started candidate_id=%s", candidate_id)
         raw_text = extract_pdf_text(pdf_path)
+        cv_hash = compute_cv_hash(raw_text)
+        cached_result = load_cached_score(cv_hash, target_role, candidate_id)
+        if cached_result:
+            logger.info(
+                "CV score cache hit candidate_id=%s target_role=%s cv_hash=%s",
+                candidate_id,
+                target_role,
+                cv_hash[:12],
+            )
+            _result_path(candidate_id).write_text(cached_result.model_dump_json(indent=2), encoding="utf-8")
+            if track_status:
+                update_stage(candidate_id, "extraction", "completed", "CV matched a cached score.", target_role=target_role)
+                update_stage(candidate_id, "scoring", "completed", "Cached CV score reused.", target_role=target_role)
+                update_stage(candidate_id, "summarizer", "completed", "Cached summary reused.", target_role=target_role)
+                update_stage(candidate_id, "results_ready", "completed", "Results are ready for review.", target_role=target_role)
+                mark_pipeline_complete(candidate_id, cached_result)
+            duration = time.perf_counter() - started
+            logger.info(
+                "CV pipeline completed from cache candidate_id=%s overall_score=%.2f grade=%s duration_seconds=%.2f",
+                candidate_id,
+                cached_result.summary.overall_score,
+                cached_result.summary.overall_grade,
+                duration,
+            )
+            return cached_result
+
+        logger.info(
+            "CV score cache miss candidate_id=%s target_role=%s cv_hash=%s",
+            candidate_id,
+            target_role,
+            cv_hash[:12],
+        )
         profile = extract_profile(raw_text, target_role)
         logger.info(
             "Extraction completed candidate_id=%s confidence=%s projects=%s skills=%s",
@@ -179,38 +213,16 @@ def process_cv(pdf_path: Path, target_role: str, candidate_id: str | None = None
 
         current_stage = "scoring"
         if track_status:
-            update_stage(candidate_id, "scoring", "in_progress", "Evaluating role fit and category evidence.", target_role=target_role)
+            update_stage(candidate_id, "scoring", "in_progress", "Scoring is running across all categories.", target_role=target_role)
         logger.info("Scoring started candidate_id=%s", candidate_id)
 
-        def progress(event: str, module_key: str | None, module) -> None:
-            nonlocal current_stage
-            if event == "module_start" and module_key:
-                label = module_key.replace("_", " ").title()
-                logger.info("Scoring module started candidate_id=%s module=%s", candidate_id, module_key)
-                if track_status:
-                    update_stage(candidate_id, "scoring", "in_progress", f"Scoring {label}.", target_role=target_role)
-            elif event == "module_complete" and module is not None:
-                logger.info(
-                    "Scoring module completed candidate_id=%s module=%s score=%.2f max_score=%.2f normalized=%.2f method=%s",
-                    candidate_id,
-                    module.module_key,
-                    module.score,
-                    module.max_score,
-                    module.normalized_score,
-                    module.scoring_method,
-                )
-            elif event == "summarizer_start":
-                current_stage = "summarizer"
-                logger.info("Summarizer started candidate_id=%s", candidate_id)
-                if track_status:
-                    update_stage(candidate_id, "scoring", "completed", "All scoring categories completed.", target_role=target_role)
-                    update_stage(candidate_id, "summarizer", "in_progress", "Generating final insights and score summary.", target_role=target_role)
-            elif event == "summarizer_complete":
-                logger.info("Summarizer completed candidate_id=%s", candidate_id)
-                if track_status:
-                    update_stage(candidate_id, "summarizer", "completed", "Final summary generated.", target_role=target_role)
-
-        modules, summary = run_scoring_graph(profile, progress if track_status else None)
+        modules, summary = run_scoring_graph(profile)
+        logger.info("Scoring completed candidate_id=%s module_count=%s", candidate_id, len(modules))
+        current_stage = "summarizer"
+        logger.info("Summarizer completed candidate_id=%s", candidate_id)
+        if track_status:
+            update_stage(candidate_id, "scoring", "completed", "All scoring categories completed in parallel.", target_role=target_role)
+            update_stage(candidate_id, "summarizer", "completed", "Final summary generated.", target_role=target_role)
         category_views = build_category_views(profile, modules)
         result = CandidateResult(**apply_workspace_fields(
             candidate_id=candidate_id,
@@ -220,6 +232,25 @@ def process_cv(pdf_path: Path, target_role: str, candidate_id: str | None = None
             category_views=category_views,
         ))
         _result_path(candidate_id).write_text(result.model_dump_json(indent=2), encoding="utf-8")
+        if store_score_cache(cv_hash, target_role, result):
+            logger.info(
+                "CV score cached in Redis candidate_id=%s target_role=%s cv_hash=%s ttl_seconds=%s",
+                candidate_id,
+                target_role,
+                cv_hash[:12],
+                SCORE_CACHE_TTL_SECONDS,
+            )
+        try:
+            persisted = persist_candidate_score(result)
+            if persisted:
+                logger.info(
+                    "CV score persisted to Supabase candidate_id=%s user_id=%s cv_hash=%s",
+                    candidate_id,
+                    persisted.user_id,
+                    persisted.cv_hash[:12],
+                )
+        except Exception:
+            logger.warning("CV score Supabase persistence failed candidate_id=%s", candidate_id, exc_info=True)
         if track_status:
             update_stage(candidate_id, "results_ready", "completed", "Results are ready for review.", target_role=target_role)
             mark_pipeline_complete(candidate_id, result)
