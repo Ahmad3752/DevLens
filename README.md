@@ -191,6 +191,25 @@ BEDROCK_MODEL_ID=your_bedrock_model_id
 
 Render free web services spin down after idle time and use an ephemeral filesystem. Uploaded PDFs and JSON files stored locally can disappear after restarts, redeploys, or spin-downs, so use Supabase/Redis-backed persistence for anything you need to keep.
 
+### GitHub Actions CI/CD
+
+The repository includes `.github/workflows/ci-cd.yml`.
+
+On every pull request and push to `main`, GitHub Actions runs:
+
+- Backend lint with Ruff
+- Backend unit tests
+- Frontend Node tests
+- Frontend production build
+
+On pushes to `main`, the workflow triggers Render only after all CI jobs pass. Add this GitHub repository secret:
+
+```env
+RENDER_DEPLOY_HOOK=https://api.render.com/deploy/srv-xxxxxxxx?key=xxxxxxxx
+```
+
+Because deploys are controlled by GitHub Actions, `render.yaml` sets `autoDeployTrigger: off`.
+
 ## API Endpoints
 
 ### Health & Debug

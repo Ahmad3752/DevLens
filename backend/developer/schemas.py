@@ -1,7 +1,7 @@
 """Pydantic schemas for developer CV evaluation APIs."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -158,4 +158,3 @@ class DeveloperScoringStatusSchema(BaseModel):
     is_complete: bool
     selected_role: Optional[str] = None
     status: str
-
