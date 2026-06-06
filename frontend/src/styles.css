@@ -1458,6 +1458,32 @@ select:disabled,
   line-height: 1.55;
 }
 
+.jobs-unavailable-panel p {
+  max-width: 620px;
+}
+
+.jobs-role-suggestions {
+  width: min(680px, 100%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.jobs-role-suggestions span {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 11px;
+  color: var(--dash-text);
+  background: var(--dash-surface-low);
+  border: 1px solid var(--dash-outline);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .jobs-list {
   display: grid;
   gap: 12px;

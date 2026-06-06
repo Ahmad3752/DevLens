@@ -189,6 +189,24 @@ class RelevantJobsServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fetch_relevant_jobs("candidate-1", sample_profile("unknown_role"), build_job_filters(), http_client=FakeHttpClient([]), redis_client=FakeRedis())
 
+    def test_unscraped_valid_role_returns_availability_message_without_supabase(self):
+        http_client = FakeHttpClient([sample_job()])
+
+        jobs, cache_status, metadata = fetch_relevant_jobs(
+            "candidate-1",
+            sample_profile("data_scientist"),
+            build_job_filters(),
+            http_client=http_client,
+            redis_client=FakeRedis(),
+        )
+
+        self.assertEqual(jobs, [])
+        self.assertEqual(cache_status, "disabled")
+        self.assertEqual(metadata["availability"], "scraping_unavailable")
+        self.assertIn("Data Scientist", metadata["message"])
+        self.assertIn({"key": "ai_ml", "label": "AI/ML Engineer"}, metadata["supported_roles"])
+        self.assertEqual(http_client.calls, [])
+
 
 class RelevantJobsEndpointTests(unittest.TestCase):
     def test_candidate_jobs_endpoint_returns_job_browser_payload(self):
@@ -215,6 +233,20 @@ class RelevantJobsEndpointTests(unittest.TestCase):
             response = TestClient(app).get("/candidates/candidate-1/jobs")
 
         self.assertEqual(response.status_code, 400)
+
+    def test_candidate_jobs_endpoint_returns_unscraped_role_message(self):
+        profile = sample_profile("data_scientist")
+
+        with patch("app.routers.jobs.load_result", return_value=SimpleNamespace(profile=profile)):
+            response = TestClient(app).get("/candidates/candidate-1/jobs")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["role_key"], "data_scientist")
+        self.assertEqual(payload["role_label"], "Data Scientist")
+        self.assertEqual(payload["cache_status"], "disabled")
+        self.assertEqual(payload["jobs"], [])
+        self.assertEqual(payload["metadata"]["availability"], "scraping_unavailable")
 
     def test_user_facing_jobs_code_does_not_import_scrapers_or_job_boards(self):
         paths = [

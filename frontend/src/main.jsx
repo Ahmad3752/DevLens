@@ -773,6 +773,7 @@ function RelevantJobsDashboard({ result, workspace }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const candidateId = result?.candidate_id;
   const query = useMemo(() => serializeJobFilters(filters), [filters]);
+  const scrapingUnavailable = jobsState.metadata?.availability === "scraping_unavailable";
 
   useEffect(() => {
     if (!candidateId) return;
@@ -819,54 +820,64 @@ function RelevantJobsDashboard({ result, workspace }) {
         <div>
           <p className="eyebrow">Relevant Jobs</p>
           <h2>{formatRole(workspace.targetRole)} roles</h2>
-          <p>{jobsState.status === "success" ? `${jobsState.jobs.length} active role${jobsState.jobs.length === 1 ? "" : "s"} found` : "Active roles from Supabase"}</p>
+          <p>
+            {scrapingUnavailable
+              ? "Scraping not available yet"
+              : jobsState.status === "success"
+                ? `${jobsState.jobs.length} active role${jobsState.jobs.length === 1 ? "" : "s"} found`
+                : "Active roles from Supabase"}
+          </p>
         </div>
         <div className="jobs-hero-actions">
-          {jobsState.cacheStatus && <span className="cache-chip">Cache {jobsState.cacheStatus}</span>}
-          <button className="score-button score-button-muted" type="button" onClick={() => setRefreshKey((value) => value + 1)}>
-            <RefreshCw size={18} /> Refresh
-          </button>
+          {jobsState.cacheStatus && !scrapingUnavailable && <span className="cache-chip">Cache {jobsState.cacheStatus}</span>}
+          {!scrapingUnavailable && (
+            <button className="score-button score-button-muted" type="button" onClick={() => setRefreshKey((value) => value + 1)}>
+              <RefreshCw size={18} /> Refresh
+            </button>
+          )}
         </div>
       </header>
 
-      <section className="score-panel jobs-filter-panel">
-        <div className="score-panel-title"><SlidersHorizontal size={19} /> Filters</div>
-        <div className="jobs-filter-grid">
-          <label>
-            <span>Employment</span>
-            <select value={filters.employment_type} onChange={(event) => updateFilter("employment_type", event.target.value)}>
-              <option value="">Any type</option>
-              <option value="full-time">Full-time</option>
-              <option value="part-time">Part-time</option>
-              <option value="internship">Internship</option>
-              <option value="contract">Contract</option>
-              <option value="freelance">Freelance</option>
-            </select>
-          </label>
-          <label>
-            <span>Level</span>
-            <select value={filters.experience_level} onChange={(event) => updateFilter("experience_level", event.target.value)}>
-              <option value="">Any level</option>
-              <option value="junior">Junior</option>
-              <option value="mid">Mid</option>
-              <option value="senior">Senior</option>
-              <option value="lead">Lead</option>
-            </select>
-          </label>
-          <label>
-            <span>Workplace</span>
-            <select value={filters.workplace_type} onChange={(event) => updateFilter("workplace_type", event.target.value)}>
-              <option value="">Any workplace</option>
-              <option value="onsite">Onsite</option>
-              <option value="hybrid">Hybrid</option>
-              <option value="remote">Remote</option>
-            </select>
-          </label>
-          <button className="score-button score-button-muted" type="button" onClick={resetFilters}>
-            <RefreshCw size={18} /> Reset
-          </button>
-        </div>
-      </section>
+      {!scrapingUnavailable && (
+        <section className="score-panel jobs-filter-panel">
+          <div className="score-panel-title"><SlidersHorizontal size={19} /> Filters</div>
+          <div className="jobs-filter-grid">
+            <label>
+              <span>Employment</span>
+              <select value={filters.employment_type} onChange={(event) => updateFilter("employment_type", event.target.value)}>
+                <option value="">Any type</option>
+                <option value="full-time">Full-time</option>
+                <option value="part-time">Part-time</option>
+                <option value="internship">Internship</option>
+                <option value="contract">Contract</option>
+                <option value="freelance">Freelance</option>
+              </select>
+            </label>
+            <label>
+              <span>Level</span>
+              <select value={filters.experience_level} onChange={(event) => updateFilter("experience_level", event.target.value)}>
+                <option value="">Any level</option>
+                <option value="junior">Junior</option>
+                <option value="mid">Mid</option>
+                <option value="senior">Senior</option>
+                <option value="lead">Lead</option>
+              </select>
+            </label>
+            <label>
+              <span>Workplace</span>
+              <select value={filters.workplace_type} onChange={(event) => updateFilter("workplace_type", event.target.value)}>
+                <option value="">Any workplace</option>
+                <option value="onsite">Onsite</option>
+                <option value="hybrid">Hybrid</option>
+                <option value="remote">Remote</option>
+              </select>
+            </label>
+            <button className="score-button score-button-muted" type="button" onClick={resetFilters}>
+              <RefreshCw size={18} /> Reset
+            </button>
+          </div>
+        </section>
+      )}
 
       <JobsResultState state={jobsState} onRetry={() => setRefreshKey((value) => value + 1)} />
     </section>
@@ -893,6 +904,24 @@ function JobsResultState({ state, onRetry }) {
         <button className="score-button score-button-primary" type="button" onClick={onRetry}>
           <RefreshCw size={18} /> Retry
         </button>
+      </section>
+    );
+  }
+
+  if (state.metadata?.availability === "scraping_unavailable") {
+    const supportedRoles = Array.isArray(state.metadata.supported_roles) ? state.metadata.supported_roles : [];
+    return (
+      <section className="score-panel jobs-state-panel jobs-unavailable-panel">
+        <Briefcase size={34} />
+        <h3>Data Scientist jobs are not being scraped yet</h3>
+        <p>{state.metadata.message || "Try another scraped role. Data Scientist job scraping will be added soon."}</p>
+        {!!supportedRoles.length && (
+          <div className="jobs-role-suggestions" aria-label="Scraped job roles">
+            {supportedRoles.map((role) => (
+              <span key={role.key || role.label}>{role.label || formatRole(role.key)}</span>
+            ))}
+          </div>
+        )}
       </section>
     );
   }

@@ -15,6 +15,20 @@ from app.schemas.jobs import CacheStatus, JobFilters, RelevantJob
 logger = logging.getLogger("devlens.jobs")
 
 JOBS_CACHE_TTL_SECONDS = 30 * 60
+SCRAPED_JOB_ROLE_KEYS = (
+    "backend",
+    "frontend",
+    "full_stack",
+    "mobile",
+    "ai_ml",
+    "devops",
+    "data_engineer",
+    "qa_automation",
+)
+SCRAPING_UNAVAILABLE_MESSAGE = (
+    "Currently, due to scraping constraints, DevLens is not collecting Data Scientist jobs. "
+    "Try one of the scraped roles below; Data Scientist job scraping will be added soon."
+)
 JOB_SELECT_COLUMNS = ",".join([
     "id",
     "title",
@@ -107,6 +121,16 @@ def fetch_relevant_jobs(
 ) -> tuple[list[RelevantJob], CacheStatus, dict[str, Any]]:
     if profile.target_role not in ROLE_LABELS:
         raise ValueError(f"Unsupported target role '{profile.target_role}'")
+
+    if profile.target_role not in SCRAPED_JOB_ROLE_KEYS:
+        return [], "disabled", {
+            "availability": "scraping_unavailable",
+            "message": SCRAPING_UNAVAILABLE_MESSAGE,
+            "supported_roles": [
+                {"key": key, "label": ROLE_LABELS[key]}
+                for key in SCRAPED_JOB_ROLE_KEYS
+            ],
+        }
 
     rows, cache_status = _load_job_rows(profile.target_role, filters, http_client=http_client, redis_client=redis_client)
     jobs = [_normalize_job(row) for row in rows]
