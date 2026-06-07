@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildScoreReportTabs, buildTabs, normalizeWorkspace, scoreBand } from "./workspaceUtils.mjs";
+import { calculateRawTotalScore, buildScoreReportTabs, buildTabs, normalizeWorkspace, scoreBand } from "./workspaceUtils.mjs";
 
 test("scoreBand uses the exact requested thresholds", () => {
   assert.equal(scoreBand(54).className, "tone-red");
@@ -38,6 +38,16 @@ test("normalizeWorkspace finds role fit dynamically by key", () => {
   assert.equal(workspace.roleFitScore, 82);
   assert.equal(workspace.roleMatchLabel, "Strong Match");
   assert.match(workspace.roleFitSummary, /AI\/ML overlap/);
+});
+
+test("calculateRawTotalScore uses raw module score totals", () => {
+  const score = calculateRawTotalScore([
+    { key: "cv_quality", score: 1.5, max_score: 2, normalized_score: 75 },
+    { key: "education_certifications", score: 2.5, max_score: 3, normalized_score: 83.33 },
+    { key: "technical_skill", score: 14, max_score: 22, normalized_score: 63.64 },
+  ]);
+
+  assert.equal(Number(score.toFixed(1)), 66.7);
 });
 
 test("buildTabs derives tabs from category array with overview first", () => {

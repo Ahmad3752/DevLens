@@ -455,7 +455,6 @@ function ScoringDashboard({ result, activeTab, setActiveTab, onBack }) {
       />
       <section className="score-main">
         <ScoreTabBar tabs={tabs} activeTab={selectedTab} setActiveTab={setActiveTab} />
-        <ScoreReportTopSummary workspace={workspace} />
         <div className="score-content-stage" key={active.key}>
           {selectedTab === "relevant_jobs" ? (
             <RelevantJobsDashboard result={result} workspace={workspace} />
@@ -520,53 +519,48 @@ function ScoreTabBar({ tabs, activeTab, setActiveTab }) {
   );
 }
 
-function ScoreReportTopSummary({ workspace }) {
+function RoleFitOverviewCard({ workspace }) {
+  const label = roleFitLabel(workspace);
+  const band = scoreBand(workspace.roleFitScore);
   return (
-    <section className="score-report-top">
-      <PersistentRoleFitScore workspace={workspace} />
-      <article className="score-report-context">
-        <div className="score-ready-chip"><CheckCircle2 size={18} /> Results ready</div>
-        <div className="score-report-copy">
-          <h1>CV Score Report</h1>
-          <p>{reportCandidateName(workspace)} - {formatRole(workspace.targetRole)}</p>
-        </div>
-        <div className="score-report-fit">
-          <span>Role fit</span>
-          <strong>{formatScore(workspace.roleFitScore)} / 100</strong>
-        </div>
-      </article>
-    </section>
-  );
-}
-
-function ScoreMetricCard({ label, score, caption, icon, accent = "primary" }) {
-  const band = accent === "secondary" ? { className: "tone-green", label: "Strong" } : scoreBand(score);
-  return (
-    <article className={`score-summary-card score-metric-card ${band.className}`}>
+    <article className={`score-summary-card score-role-fit-card ${band.className}`}>
       <div className="score-card-label">
-        <span>{label}</span>
-        {icon}
+        <span>Role Fit</span>
+        <Radar size={22} />
       </div>
       <div className="score-metric-value">
-        <strong>{formatScore(score)}</strong>
+        <strong>{formatScore(workspace.roleFitScore)}</strong>
         <span>/100</span>
       </div>
-      <ScoreBandBadge score={score} label={caption || band.label} />
+      <ScoreBandBadge score={workspace.roleFitScore} label={label} />
+      <h3>{label} for selected role</h3>
+      <p>
+        Role fit score: <b>{formatScore(workspace.roleFitScore)}/100</b> - This score reflects alignment with the selected{" "}
+        {formatRole(workspace.targetRole)} based on extracted skills, projects, and role evidence.
+      </p>
     </article>
   );
 }
 
-function PersistentRoleFitScore({ workspace }) {
+function TotalScoreCard({ workspace }) {
+  const band = scoreBand(workspace.rawTotalScore);
   return (
-    <section className="score-persistent-role-fit" aria-label="Role fit score">
-      <ScoreMetricCard
-        label="Role Fit"
-        score={workspace.roleFitScore}
-        caption={roleFitLabel(workspace)}
-        icon={<Radar size={22} />}
-        accent="secondary"
-      />
-    </section>
+    <article className={`score-summary-card score-total-score-card ${band.className}`}>
+      <div className="score-card-label">
+        <span>Total Score</span>
+        <Gauge size={22} />
+      </div>
+      <div className="score-metric-value">
+        <strong>{formatScoreFixed(workspace.rawTotalScore, 1)}</strong>
+        <span>/100</span>
+      </div>
+      <ScoreBandBadge score={workspace.rawTotalScore} label="Raw module total" />
+      <p>
+        Sum of all module scores divided by total possible points across CV Quality, Education,
+        Engineering Practices, Professional Experience, Project & Work Evidence, Research,
+        Role-Specific Fit, and Technical Skill Match.
+      </p>
+    </article>
   );
 }
 
@@ -574,14 +568,8 @@ function ScoreOverviewDashboard({ workspace, onSelectCategory }) {
   return (
     <section className="score-overview">
       <section className="score-summary-grid score-overview-summary">
-        <ScoreMetricCard
-          label="Role Fit"
-          score={workspace.roleFitScore}
-          caption={roleFitLabel(workspace)}
-          icon={<Radar size={22} />}
-          accent="secondary"
-        />
-        <ScoreTierCard workspace={workspace} />
+        <RoleFitOverviewCard workspace={workspace} />
+        <TotalScoreCard workspace={workspace} />
       </section>
 
       <section className="score-category-summary">
@@ -602,22 +590,6 @@ function ScoreOverviewDashboard({ workspace, onSelectCategory }) {
         </div>
       </section>
     </section>
-  );
-}
-
-function ScoreTierCard({ workspace }) {
-  return (
-    <article className="score-summary-card score-tier-card">
-      <div className="score-tier-status">
-        <CheckCircle2 size={18} />
-        <strong>{roleFitLabel(workspace)} for selected role</strong>
-      </div>
-      <p className="score-tier-fit">Role fit score: <b>{formatScore(workspace.roleFitScore)} / 100</b></p>
-      <p>
-        This score reflects alignment with the selected {formatRole(workspace.targetRole)} role based on extracted
-        skills, projects, and role evidence.
-      </p>
-    </article>
   );
 }
 
@@ -1363,6 +1335,10 @@ function clampScore(value) {
 function formatScore(value) {
   const number = Number(value || 0);
   return Number.isInteger(number) ? String(number) : number.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatScoreFixed(value, digits = 1) {
+  return Number(value || 0).toFixed(digits);
 }
 
 function titleize(value) {

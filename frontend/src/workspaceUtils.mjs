@@ -11,6 +11,7 @@ export function normalizeWorkspace(result) {
   const categories = normalizeCategories(result);
   const roleFit = categories.find((category) => category.key === "role_fit");
   const totalScore = Number(result.total_score ?? result.summary?.overall_score ?? 0);
+  const rawTotalScore = calculateRawTotalScore(categories);
   const roleFitScore = Number(result.role_fit_score ?? roleFit?.normalized_score ?? 0);
   const sorted = [...categories].sort((a, b) => Number(b.normalized_score || 0) - Number(a.normalized_score || 0));
   const strongest = sorted.slice(0, 2).map((category) => category.name).join(" and ");
@@ -33,6 +34,7 @@ export function normalizeWorkspace(result) {
     candidateName: result.candidate_name || result.profile?.name || "Candidate",
     targetRole: result.target_role || result.summary?.target_role || result.profile?.target_role || "Selected role",
     totalScore,
+    rawTotalScore,
     roleFitScore,
     tier: result.tier || result.summary?.overall_grade || scoreBand(totalScore).label,
     roleMatchLabel: result.role_match_label || scoreBand(roleFitScore).matchLabel,
@@ -41,6 +43,40 @@ export function normalizeWorkspace(result) {
     overviewVerdict,
     roleFitSummary,
   };
+}
+
+export function calculateRawTotalScore(categories) {
+  const totals = categories.reduce((acc, category) => {
+    const score = Number(category.score);
+    const max = Number(category.max_score);
+    if (Number.isFinite(score) && Number.isFinite(max) && max > 0) {
+      return { score: acc.score + score, max: acc.max + max };
+    }
+
+    const subTotals = Object.values(category.sub_scores || {}).reduce((subAcc, item) => {
+      if (!item || typeof item !== "object") return subAcc;
+      const itemScore = Number(item.score);
+      const itemMax = Number(item.max);
+      if (!Number.isFinite(itemScore) || !Number.isFinite(itemMax) || itemMax <= 0) return subAcc;
+      return {
+        score: subAcc.score + itemScore,
+        max: subAcc.max + itemMax,
+      };
+    }, { score: 0, max: 0 });
+
+    if (subTotals.max > 0) {
+      return { score: acc.score + subTotals.score, max: acc.max + subTotals.max };
+    }
+
+    const normalized = Number(category.normalized_score);
+    if (Number.isFinite(normalized)) {
+      return { score: acc.score + normalized, max: acc.max + 100 };
+    }
+
+    return acc;
+  }, { score: 0, max: 0 });
+
+  return totals.max > 0 ? (totals.score / totals.max) * 100 : 0;
 }
 
 export function normalizeCategories(result) {
