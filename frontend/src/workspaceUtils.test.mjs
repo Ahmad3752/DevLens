@@ -5,6 +5,7 @@ import {
   calculateRawTotalScore,
   buildScoreReportTabs,
   buildTabs,
+  clampSubScoreForDisplay,
   moduleNormalizedScore,
   moduleScoreLabel,
   normalizeWorkspace,
@@ -89,6 +90,20 @@ test("moduleScoreLabel ignores mismatched sub-score totals when official module 
 
   assert.equal(moduleNormalizedScore(category), 50);
   assert.equal(moduleScoreLabel(category), "6/12");
+});
+
+test("clampSubScoreForDisplay clamps oversized sub-scores and warns", () => {
+  const warnings = [];
+  const result = clampSubScoreForDisplay(
+    "date_and_role_clarity",
+    { score: 1.7, max: 0.9, reasoning: "Too high" },
+    (...args) => warnings.push(args),
+  );
+
+  assert.equal(result.scoreLabel, "0.9/0.9");
+  assert.equal(result.percent, 100);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0][0], /exceeded max/);
 });
 
 test("buildTabs derives tabs from category array with overview first", () => {

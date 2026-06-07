@@ -2,9 +2,10 @@ import unittest
 from unittest.mock import patch
 
 from app.schemas.cv import CandidateProfile, Project, Publication
+from app.constants.roles import ROLE_WEIGHTS
 from app.services.scoring import llm_modules
 from app.services.scoring.graph import run_scoring_graph
-from app.services.scoring.modules import engineering_practices, project_work, score_one
+from app.services.scoring.modules import engineering_practices, professional_experience, project_work, score_one
 from app.services.scoring.utils import grade, score_tier
 
 
@@ -96,10 +97,8 @@ class DynamicScoringTests(unittest.TestCase):
         _, weak_summary = run_scoring_graph(weak)
 
         self.assertGreater(strong_summary.overall_score, weak_summary.overall_score)
-        self.assertGreaterEqual(strong_summary.overall_score, 55)
-        self.assertLessEqual(strong_summary.overall_score, 69)
-        self.assertGreaterEqual(weak_summary.overall_score, 40)
-        self.assertLessEqual(weak_summary.overall_score, 54)
+        self.assertEqual(strong_summary.overall_grade, grade(strong_summary.overall_score))
+        self.assertEqual(weak_summary.overall_grade, grade(weak_summary.overall_score))
 
     def test_role_mismatch_stays_not_ready(self):
         profile = self._profile(role="mobile")
@@ -107,7 +106,7 @@ class DynamicScoringTests(unittest.TestCase):
         self.assertLess(summary.overall_score, 40)
         self.assertEqual(summary.overall_grade, "Not Ready")
 
-    def test_professional_profiles_reach_expected_career_bands(self):
+    def test_professional_profiles_gain_raw_score_with_stronger_experience(self):
         rich_projects = [
             Project(
                 title="AI API Service",
@@ -137,15 +136,15 @@ class DynamicScoringTests(unittest.TestCase):
                 complexity_level="high",
             ),
         ]
-        expectations = [
-            ("junior", 18, "Junior Developer"),
-            ("mid", 36, "Mid-Level Developer"),
-            ("senior", 72, "Senior Developer"),
-        ]
-        for stage, months, expected in expectations:
+        summaries = []
+        for stage, months in [("junior", 18), ("mid", 36), ("senior", 72)]:
             with self.subTest(stage=stage):
                 _, summary = run_scoring_graph(self._profile(stage=stage, months=months, projects=rich_projects, rich=True))
-                self.assertEqual(summary.overall_grade, expected)
+                self.assertEqual(summary.overall_grade, grade(summary.overall_score))
+                summaries.append(summary)
+
+        self.assertLess(summaries[0].overall_score, summaries[1].overall_score)
+        self.assertLess(summaries[1].overall_score, summaries[2].overall_score)
 
     def test_engineering_practices_uses_strict_partial_credit(self):
         profile = CandidateProfile(
@@ -170,6 +169,31 @@ class DynamicScoringTests(unittest.TestCase):
         self.assertEqual(scored.sub_scores["architecture"]["score"], 1.5)
         self.assertEqual(scored.sub_scores["security_performance"]["score"], 0.5)
         self.assertEqual(scored.sub_scores["deployment"]["score"], 2.0)
+
+    def test_all_modules_obey_sub_score_invariants(self):
+        profile = self._profile(stage="senior", months=72, rich=True)
+        modules = [
+            score_one(key, max_score=max_score, profile=profile)
+            for key, max_score in ROLE_WEIGHTS[profile.target_role].items()
+            if max_score > 0
+        ]
+
+        self.assertEqual(len(modules), 8)
+        for module in modules:
+            with self.subTest(module=module.module_key):
+                sub_scores = module.sub_scores.values()
+                self.assertTrue(module.sub_scores)
+                self.assertTrue(all(float(item["score"]) <= float(item["max"]) for item in sub_scores))
+                self.assertAlmostEqual(sum(float(item["score"]) for item in module.sub_scores.values()), module.score, places=2)
+                self.assertAlmostEqual(sum(float(item["max"]) for item in module.sub_scores.values()), module.max_score, places=2)
+
+    def test_overall_score_is_raw_sum_of_module_scores(self):
+        profile = self._profile(stage="senior", months=72, rich=True)
+        modules, summary = run_scoring_graph(profile)
+        expected = round((sum(module.score for module in modules) / sum(module.max_score for module in modules)) * 100, 2)
+
+        self.assertEqual(summary.overall_score, expected)
+        self.assertEqual(summary.overall_grade, grade(expected))
 
 
 class BedrockScoringTests(unittest.TestCase):
@@ -198,15 +222,56 @@ class BedrockScoringTests(unittest.TestCase):
             "confidence": "high",
             "evidence_found": ["Valid deployed RAG project"],
             "missing_evidence": ["Limited metrics"],
-            "sub_scores": {"depth": {"score": 6, "max": 10, "reasoning": "Solid but not complete"}},
+            "sub_scores": {"valid_project_count": {"score": 2.2, "max": 10, "reasoning": "Solid but not complete"}},
             "recommendations": ["Add measurable impact"],
             "llm_reasoning": "Bedrock judged the project evidence.",
         }
         with patch("app.services.scoring.llm_modules.invoke_model_bedrock_first", return_value=llm_modules.StructuredModuleScore.model_validate(response)):
             scored = llm_modules.llm_score_module("project_work", profile, 22, baseline)
-        self.assertEqual(scored.score, 12.5)
+        self.assertAlmostEqual(scored.score, sum(item["score"] for item in scored.sub_scores.values()), places=2)
         self.assertEqual(scored.scoring_method, "llm")
         self.assertEqual(scored.confidence, "high")
+
+    def test_llm_sub_scores_are_clamped_and_drive_module_score(self):
+        profile = CandidateProfile(
+            target_role="ai_ml",
+            raw_cv_text="Senior AI engineer from 2020 to 2024 building deployed RAG systems.",
+            programming_languages=["Python"],
+            total_experience_months=48,
+            seniority_level="mid",
+            current_role="Machine Learning Engineer",
+            projects=[
+                Project(
+                    title="RAG Platform",
+                    description="Built deployed RAG project with LangChain and PyTorch.",
+                    technologies=["Python", "PyTorch", "LangChain", "RAG"],
+                    has_production_evidence=True,
+                )
+            ],
+        )
+        baseline = professional_experience(profile, 18)
+        response = {
+            "score": 18,
+            "confidence": "high",
+            "evidence_found": ["Professional AI work"],
+            "missing_evidence": [],
+            "sub_scores": {
+                "date_and_role_clarity": {"score": 1.7, "max": 99, "reasoning": "LLM over-scored this field."},
+                "unknown_extra": {"score": 10, "max": 10, "reasoning": "Should be ignored."},
+            },
+            "recommendations": [],
+            "llm_reasoning": "LLM top-level score should not control final score.",
+        }
+
+        with self.assertLogs("devlens.scoring", level="WARNING"):
+            with patch("app.services.scoring.llm_modules.invoke_model_bedrock_first", return_value=llm_modules.StructuredModuleScore.model_validate(response)):
+                scored = llm_modules.llm_score_module("professional_experience", profile, 18, baseline)
+
+        self.assertEqual(scored.sub_scores["date_and_role_clarity"]["score"], scored.sub_scores["date_and_role_clarity"]["max"])
+        self.assertEqual(scored.sub_scores["date_and_role_clarity"]["max"], 0.9)
+        self.assertNotIn("unknown_extra", scored.sub_scores)
+        self.assertAlmostEqual(scored.score, sum(item["score"] for item in scored.sub_scores.values()), places=2)
+        self.assertAlmostEqual(sum(item["max"] for item in scored.sub_scores.values()), scored.max_score, places=2)
 
     def test_invalid_bedrock_response_falls_back_in_score_one(self):
         llm_modules.LLM_MODULES.add("project_work")

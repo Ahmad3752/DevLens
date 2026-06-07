@@ -28,6 +28,24 @@ export function moduleScoreLabel(category) {
   return `${formatScore(normalized)}/100`;
 }
 
+export function clampSubScoreForDisplay(name, value, warn = console.warn) {
+  const data = value && typeof value === "object" ? value : {};
+  const rawScore = Number(data.score || 0);
+  const max = Number(data.max || 0);
+  const score = max > 0 ? Math.max(0, Math.min(rawScore, max)) : rawScore;
+
+  if (max > 0 && rawScore > max && typeof warn === "function") {
+    warn(`Sub-score "${name}" exceeded max and was clamped for display.`, {
+      score: rawScore,
+      max,
+    });
+  }
+
+  const percent = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
+  const scoreLabel = max ? `${formatScore(score)}/${formatScore(max)}` : formatDetail(value);
+  return { data, score, max, percent, scoreLabel };
+}
+
 export function normalizeWorkspace(result) {
   const categories = normalizeCategories(result);
   const roleFit = categories.find((category) => category.key === "role_fit");
@@ -141,6 +159,13 @@ export function normalizeCategories(result) {
 function formatScore(value) {
   const number = Number(value || 0);
   return Number.isInteger(number) ? String(number) : number.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatDetail(value) {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object" && value !== null) return JSON.stringify(value);
+  return String(value);
 }
 
 export function buildTabs(categories) {

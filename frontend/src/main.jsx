@@ -32,6 +32,7 @@ import "./styles.css";
 import {
   buildScoreReportTabs,
   buildTabs,
+  clampSubScoreForDisplay,
   moduleNormalizedScore,
   moduleScoreLabel,
   normalizeWorkspace,
@@ -1119,11 +1120,7 @@ function SubScores({ subScores }) {
 }
 
 function SubScore({ name, value }) {
-  const data = value && typeof value === "object" ? value : {};
-  const score = Number(data.score || 0);
-  const max = Number(data.max || 0);
-  const percent = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
-  const scoreLabel = max ? `${formatScore(score)}/${formatScore(max)}` : formatDetail(value);
+  const { data, max, percent, scoreLabel } = clampSubScoreForDisplay(name, value);
   return (
     <details className={`subscore ${scoreBand(percent).className}`}>
       <summary>

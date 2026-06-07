@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from app.constants.roles import ROLE_FOCUS
 from app.schemas.cv import CandidateProfile, ModuleScore
 from app.services.llm_client import invoke_model_bedrock_first
-from app.services.scoring.utils import make_module
+from app.services.scoring.utils import make_module, reconcile_sub_scores
 
 
 LLM_MODULES = {"technical_skill", "project_work", "engineering_practices", "research"}
@@ -131,13 +131,14 @@ def llm_score_module(key: str, profile: CandidateProfile, max_score: float, base
     prompt = _bedrock_prompt(key, profile, max_score, baseline) if key in BEDROCK_FIRST_MODULES else _generic_prompt(key, profile, max_score, baseline)
     structured = invoke_model_bedrock_first(prompt, StructuredModuleScore, BEDROCK_SCORING_SYSTEM)
     raw = structured.model_dump()
+    sub_scores = reconcile_sub_scores(key, structured.sub_scores, baseline.sub_scores)
     return make_module(
         key=key,
         score=structured.score,
         max_score=max_score,
         evidence=structured.evidence_found,
         missing=structured.missing_evidence,
-        sub_scores=structured.sub_scores,
+        sub_scores=sub_scores,
         recommendations=structured.recommendations,
         reasoning=structured.llm_reasoning,
         method="hybrid" if key in HYBRID_MODULES else "llm",

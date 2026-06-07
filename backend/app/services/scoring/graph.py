@@ -139,8 +139,9 @@ def _calibrate_total(profile: CandidateProfile, modules: list[ModuleScore], raw_
 def summarizer(state: CVState) -> dict[str, Any]:
     profile = state["profile"]
     modules = sorted(state.get("modules", []), key=lambda m: m.max_score, reverse=True)
-    raw_total = round(sum(m.score for m in modules), 2)
-    total, calibration_reasons, calibration_details = _calibrate_total(profile, modules, raw_total)
+    module_score_total = round(sum(m.score for m in modules), 2)
+    module_max_total = round(sum(m.max_score for m in modules), 2)
+    total = round((module_score_total / module_max_total) * 100, 2) if module_max_total else 0.0
     overall_grade = grade(total)
     tier = score_tier(total)
     recommendation = str(tier["verdict"])
@@ -154,7 +155,6 @@ def summarizer(state: CVState) -> dict[str, Any]:
         if module.normalized_score < 70:
             weaknesses.extend(module.missing_evidence[:2])
         recommendations.extend(module.recommendations[:1])
-    weaknesses.extend(calibration_reasons)
 
     summary = ScoreSummary(
         target_role=profile.target_role,
@@ -165,15 +165,12 @@ def summarizer(state: CVState) -> dict[str, Any]:
         top_strengths=list(dict.fromkeys(strengths))[:6],
         top_weaknesses=list(dict.fromkeys(weaknesses))[:6],
         recommendations=list(dict.fromkeys(recommendations))[:6],
-        summary_narrative=f"This CV scores {total}/100 for the selected role: {overall_grade}. {recommendation}. The result is calibrated by module evidence, career stage, role alignment, and missing evidence.",
+        summary_narrative=f"This CV scores {total}/100 for the selected role: {overall_grade}. {recommendation}. The result is calculated from summed module scores.",
         raw_summary_json={
             "module_count": len(modules),
-            "raw_total_before_calibration": raw_total,
-            "career_band": calibration_details["career_band"],
-            "band_score": calibration_details["band_score"],
-            "evidence_quality": calibration_details["evidence_quality"],
-            "calibration_band": calibration_details["calibration_band"],
-            "calibration_reasons": calibration_reasons,
+            "module_score_total": module_score_total,
+            "module_max_total": module_max_total,
+            "raw_total_score": total,
         },
     )
     return {"summary": summary}

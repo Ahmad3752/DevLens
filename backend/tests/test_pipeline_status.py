@@ -56,7 +56,7 @@ class CategoryViewTests(unittest.TestCase):
             22,
             ["Deployed RAG project"],
             ["Limited usage metrics"],
-            {"impact": {"score": 4, "max": 5, "reasoning": "Some measurable signal"}},
+            {"impact": {"score": 18, "max": 22, "reasoning": "Some measurable signal"}},
             ["Add exact user or accuracy metrics."],
             "Project evidence is strong but metrics can be clearer.",
             "llm",
