@@ -273,6 +273,8 @@ def build_workspace_categories(category_views: list[CategoryView]) -> list[Works
         WorkspaceCategory(
             key=category.key,
             name=category.label,
+            score=category.score,
+            max_score=category.max_score,
             normalized_score=category.normalized_score,
             weight=round((category.max_score or 0) / 100, 4),
             grade_label=workspace_grade_label(category.normalized_score),

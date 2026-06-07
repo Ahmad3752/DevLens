@@ -158,19 +158,66 @@ def professional_experience(profile: CandidateProfile, max_score: float) -> Modu
 def engineering_practices(profile: CandidateProfile, max_score: float) -> ModuleScore:
     skills = _all_skills(profile)
     raw = profile.raw_cv_text.lower()
-    checks = {
-        "testing": any(x.lower() in raw for x in profile.testing_tools) or bool(re.search(r"\b(test|testing|coverage|pytest|jest|unit test)\b", raw)),
-        "version_control": profile.has_github or "git" in raw,
-        "ci_cd": "github actions" in raw or "ci/cd" in raw or "pipeline" in raw,
-        "architecture": bool(profile.architecture_practices) or bool(re.search(r"\b(architecture|orchestration|microservices|reranking|fallback|caching)\b", raw)),
-        "security_performance": any(k in raw for k in ["security", "auth", "jwt", "performance", "cache", "redis"]),
-        "deployment": any(k in " ".join(skills).lower() for k in ["docker", "aws", "kubernetes", "render", "vercel"]),
+    skill_text = " ".join(skills).lower()
+    bucket_max = max_score / 6
+
+    testing_full = bool(profile.testing_tools) or bool(re.search(r"\b(pytest|jest|cypress|playwright|selenium|unit tests?|integration tests?|e2e tests?|test coverage|test suite|testing framework)\b", raw))
+    version_full = bool(profile.github_url and re.search(r"\b(branching|pull request|code review|git workflow|version control workflow)\b", raw))
+    version_partial = profile.has_github or "github" in raw or "git" in raw
+    ci_full = bool(re.search(r"\b(ci/cd pipeline|github actions workflow|pipeline stages|rollback|deployment frequency|infrastructure as code|terraform)\b", raw))
+    ci_partial = any(term in raw for term in ["github actions", "ci/cd", "pipeline", "mlops", "llmops"])
+    architecture_full = bool(re.search(r"\b(system design|scalability|architectural trade[- ]offs?|fault tolerance|distributed systems|high availability)\b", raw))
+    architecture_partial = bool(profile.architecture_practices) or bool(re.search(r"\b(rest|graphql|microservices|architecture|orchestration|langchain|langgraph|rag)\b", raw))
+    security_full = bool(re.search(r"\b(authentication|authorization|encryption|jwt|oauth|security hardening|vulnerability|performance profiling|latency|load testing|caching strategy)\b", raw))
+    security_partial = any(term in raw for term in ["security", "performance", "cache", "redis", "fraud"])
+    deployment_full = profile.has_deployed_projects or bool(re.search(r"\b(deployed|production deployment|cloud run|app services|lambda|sagemaker|bedrock|vertex ai|render|vercel)\b", raw))
+    deployment_partial = any(term in skill_text for term in ["docker", "aws", "azure", "gcp", "kubernetes", "cloud"])
+
+    buckets = {
+        "testing": (
+            1.0 if testing_full else 0.0,
+            "Specific testing tools, suites, or coverage evidence found." if testing_full else "No explicit unit tests, integration tests, coverage, or testing framework evidence found.",
+        ),
+        "version_control": (
+            1.0 if version_full else 0.25 if version_partial else 0.0,
+            "Version-control workflow evidence found." if version_full else "Git/GitHub signal found, but no workflow, branching, code review, or repository evidence." if version_partial else "No version-control evidence found.",
+        ),
+        "ci_cd": (
+            1.0 if ci_full else 0.5 if ci_partial else 0.0,
+            "CI/CD automation details found." if ci_full else "CI/CD or MLOps signal found, but pipeline details are limited." if ci_partial else "No CI/CD or deployment automation evidence found.",
+        ),
+        "architecture": (
+            1.0 if architecture_full else 0.75 if architecture_partial else 0.0,
+            "Architecture decisions, scalability, or trade-off evidence found." if architecture_full else "Architecture signals found, but limited system-design detail." if architecture_partial else "No architecture evidence found.",
+        ),
+        "security_performance": (
+            1.0 if security_full else 0.25 if security_partial else 0.0,
+            "Security or performance implementation evidence found." if security_full else "Security/performance signal found, but no hardening, auth, encryption, profiling, or optimization detail." if security_partial else "No security or performance evidence found.",
+        ),
+        "deployment": (
+            1.0 if deployment_full else 0.5 if deployment_partial else 0.0,
+            "Concrete deployment or production cloud evidence found." if deployment_full else "Cloud or container tools found, but deployment evidence is limited." if deployment_partial else "No deployment evidence found.",
+        ),
     }
-    earned = sum(1 for ok in checks.values() if ok)
-    evidence = [name.replace("_", " ").title() for name, ok in checks.items() if ok]
-    missing = [f"No {name.replace('_', ' ')} evidence found." for name, ok in checks.items() if not ok]
-    score = max_score * earned / len(checks)
-    return make_module("engineering_practices", score, max_score, evidence, missing, {k: {"score": max_score / len(checks) if v else 0, "max": max_score / len(checks)} for k, v in checks.items()}, ["Add testing, CI/CD, deployment, monitoring, and security bullets where true."], "Engineering practice score checks whether the CV proves professional delivery habits.", "deterministic")
+
+    sub_scores = {
+        key: {"score": round(bucket_max * factor, 2), "max": round(bucket_max, 2), "reasoning": reasoning}
+        for key, (factor, reasoning) in buckets.items()
+    }
+    evidence = [reasoning for factor, reasoning in buckets.values() if factor > 0]
+    missing = [reasoning for factor, reasoning in buckets.values() if factor == 0]
+    score = sum(item["score"] for item in sub_scores.values())
+    return make_module(
+        "engineering_practices",
+        score,
+        max_score,
+        evidence,
+        missing,
+        sub_scores,
+        ["Add specific testing, version-control workflow, CI/CD stages, security/performance, monitoring, and deployment automation evidence where true."],
+        "Engineering practice score uses a strict six-bucket rubric and requires explicit delivery evidence for full credit.",
+        "deterministic",
+    )
 
 
 def role_fit(profile: CandidateProfile, max_score: float) -> ModuleScore:

@@ -129,6 +129,8 @@ class CategoryView(BaseModel):
 class WorkspaceCategory(BaseModel):
     key: str
     name: str
+    score: float = 0.0
+    max_score: float = 0.0
     normalized_score: float
     weight: float | None = None
     grade_label: str

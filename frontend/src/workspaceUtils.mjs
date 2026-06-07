@@ -7,13 +7,34 @@ export function scoreBand(score) {
   return { className: "tone-red", label: "Critical", matchLabel: "Weak Match" };
 }
 
+export function moduleNormalizedScore(category) {
+  const score = Number(category?.score);
+  const max = Number(category?.max_score);
+  if (Number.isFinite(score) && Number.isFinite(max) && max > 0) {
+    return (score / max) * 100;
+  }
+
+  return Number(category?.normalized_score || 0);
+}
+
+export function moduleScoreLabel(category) {
+  const score = Number(category?.score);
+  const max = Number(category?.max_score);
+  if (Number.isFinite(score) && Number.isFinite(max) && max > 0) {
+    return `${formatScore(score)}/${formatScore(max)}`;
+  }
+
+  const normalized = moduleNormalizedScore(category);
+  return `${formatScore(normalized)}/100`;
+}
+
 export function normalizeWorkspace(result) {
   const categories = normalizeCategories(result);
   const roleFit = categories.find((category) => category.key === "role_fit");
   const totalScore = Number(result.total_score ?? result.summary?.overall_score ?? 0);
   const rawTotalScore = calculateRawTotalScore(categories);
-  const roleFitScore = Number(result.role_fit_score ?? roleFit?.normalized_score ?? 0);
-  const sorted = [...categories].sort((a, b) => Number(b.normalized_score || 0) - Number(a.normalized_score || 0));
+  const roleFitScore = Number(result.role_fit_score ?? (roleFit ? moduleNormalizedScore(roleFit) : 0));
+  const sorted = [...categories].sort((a, b) => moduleNormalizedScore(b) - moduleNormalizedScore(a));
   const strongest = sorted.slice(0, 2).map((category) => category.name).join(" and ");
   const weakest = sorted.slice(-2).map((category) => category.name).join(" and ");
   const baseSummary = result.overall_summary || result.summary?.summary_narrative || "";
@@ -84,12 +105,14 @@ export function normalizeCategories(result) {
     return result.categories.map((category) => ({
       ...category,
       name: category.name || category.label,
+      score: Number(category.score || 0),
+      max_score: Number(category.max_score || 0),
       evidence: category.evidence || category.evidence_found || [],
       missing_evidence: category.missing_evidence || [],
       recommendations: category.recommendations || [],
       extracted_items: category.extracted_items || [],
       verdict_sentence: category.verdict_sentence || category.verdict || category.score_narrative,
-      grade_label: category.grade_label || scoreBand(category.normalized_score).label,
+      grade_label: scoreBand(moduleNormalizedScore(category)).label,
       sub_scores: category.sub_scores || {},
     }));
   }
@@ -104,7 +127,7 @@ export function normalizeCategories(result) {
     max_score: Number(category.max_score || 0),
     normalized_score: Number(category.normalized_score || 0),
     weight: category.weight ?? ((category.max_score || 0) / 100),
-    grade_label: category.grade_label || scoreBand(category.normalized_score).label,
+    grade_label: scoreBand(moduleNormalizedScore(category)).label,
     verdict_sentence: category.verdict_sentence || category.verdict || category.llm_reasoning || "",
     extracted_items: category.extracted_items || [{ title: "Evidence used by scoring", body: (category.evidence_found || []).join(" ") }],
     evidence: category.evidence || category.evidence_found || [],
@@ -113,6 +136,11 @@ export function normalizeCategories(result) {
     score_narrative: category.score_narrative || category.llm_reasoning || "",
     sub_scores: category.sub_scores || {},
   }));
+}
+
+function formatScore(value) {
+  const number = Number(value || 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(1).replace(/\.0$/, "");
 }
 
 export function buildTabs(categories) {

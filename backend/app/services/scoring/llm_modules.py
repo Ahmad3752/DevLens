@@ -84,9 +84,26 @@ Profile without raw CV text:
 
 
 def _generic_prompt(key: str, profile: CandidateProfile, max_score: float, baseline: ModuleScore) -> str:
+    module_focus = {
+        "engineering_practices": """
+Engineering Practices rubric:
+- Score six buckets only: testing, version_control, ci_cd, architecture, security_performance, deployment.
+- Each bucket max is max_score / 6.
+- Full bucket credit requires explicit implementation evidence, not just a keyword.
+- Listed tools/practices may earn partial credit when implementation detail is missing.
+- Testing full credit requires unit/integration/e2e tests, coverage, or named testing frameworks.
+- Version control full credit requires repo/profile plus workflow evidence such as branching, PRs, or code review.
+- CI/CD full credit requires pipeline stages, deployment automation, rollback, frequency, or infrastructure-as-code detail.
+- Architecture full credit requires design decisions, scalability, reliability, or trade-off evidence.
+- Security/performance full credit requires auth, encryption, hardening, profiling, load/latency optimization, or monitoring detail.
+- Deployment full credit requires deployed/production/cloud evidence; cloud/container tools alone are partial.
+Return sub_scores with these exact six bucket names and make the top-level score consistent with the evidence.
+""",
+    }.get(key, "")
     return f"""
 Score the CV module "{key}" for target role "{profile.target_role}".
 Role focus: {ROLE_FOCUS.get(profile.target_role, profile.target_role)}
+{module_focus}
 
 Return JSON with:
 score number from 0 to {max_score},

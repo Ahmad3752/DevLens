@@ -4,7 +4,7 @@ from unittest.mock import patch
 from app.schemas.cv import CandidateProfile, Project, Publication
 from app.services.scoring import llm_modules
 from app.services.scoring.graph import run_scoring_graph
-from app.services.scoring.modules import project_work, score_one
+from app.services.scoring.modules import engineering_practices, project_work, score_one
 from app.services.scoring.utils import grade, score_tier
 
 
@@ -146,6 +146,30 @@ class DynamicScoringTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 _, summary = run_scoring_graph(self._profile(stage=stage, months=months, projects=rich_projects, rich=True))
                 self.assertEqual(summary.overall_grade, expected)
+
+    def test_engineering_practices_uses_strict_partial_credit(self):
+        profile = CandidateProfile(
+            target_role="ai_ml",
+            raw_cv_text=(
+                "GitHub Actions CI/CD pipelines MLOps LLMOps REST GraphQL Microservices "
+                "LangChain architecture AWS SageMaker Bedrock Lambda Azure App Services "
+                "GCP Vertex AI Cloud Run deployed identity fraud reduction 70%"
+            ),
+            cloud_devops_tools=["AWS", "Azure", "GCP", "Docker", "GitHub Actions"],
+            architecture_practices=["REST", "GraphQL", "Microservices"],
+            has_deployed_projects=True,
+        )
+
+        scored = engineering_practices(profile, 12)
+
+        self.assertEqual(scored.score, 5.5)
+        self.assertEqual(scored.normalized_score, 45.83)
+        self.assertEqual(scored.sub_scores["testing"]["score"], 0)
+        self.assertEqual(scored.sub_scores["version_control"]["score"], 0.5)
+        self.assertEqual(scored.sub_scores["ci_cd"]["score"], 1.0)
+        self.assertEqual(scored.sub_scores["architecture"]["score"], 1.5)
+        self.assertEqual(scored.sub_scores["security_performance"]["score"], 0.5)
+        self.assertEqual(scored.sub_scores["deployment"]["score"], 2.0)
 
 
 class BedrockScoringTests(unittest.TestCase):

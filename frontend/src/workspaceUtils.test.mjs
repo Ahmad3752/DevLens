@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { calculateRawTotalScore, buildScoreReportTabs, buildTabs, normalizeWorkspace, scoreBand } from "./workspaceUtils.mjs";
+import {
+  calculateRawTotalScore,
+  buildScoreReportTabs,
+  buildTabs,
+  moduleNormalizedScore,
+  moduleScoreLabel,
+  normalizeWorkspace,
+  scoreBand,
+} from "./workspaceUtils.mjs";
 
 test("scoreBand uses the exact requested thresholds", () => {
   assert.equal(scoreBand(54).className, "tone-red");
@@ -48,6 +56,39 @@ test("calculateRawTotalScore uses raw module score totals", () => {
   ]);
 
   assert.equal(Number(score.toFixed(1)), 66.7);
+});
+
+test("moduleNormalizedScore prefers module score and max score", () => {
+  const score = moduleNormalizedScore({
+    score: 11.2,
+    max_score: 18,
+    normalized_score: 62.2,
+    sub_scores: {
+      duration: { score: 9, max: 12 },
+      relevance: { score: 2.2, max: 2.9 },
+    },
+  });
+
+  assert.equal(Number(score.toFixed(1)), 62.2);
+});
+
+test("moduleScoreLabel ignores mismatched sub-score totals when official module score exists", () => {
+  const category = {
+    score: 6,
+    max_score: 12,
+    normalized_score: 50,
+    sub_scores: {
+      testing: { score: 0, max: 2 },
+      version_control: { score: 0.5, max: 2 },
+      ci_cd: { score: 1, max: 2 },
+      architecture: { score: 1.5, max: 2 },
+      security_performance: { score: 0.5, max: 2 },
+      deployment: { score: 2, max: 2 },
+    },
+  };
+
+  assert.equal(moduleNormalizedScore(category), 50);
+  assert.equal(moduleScoreLabel(category), "6/12");
 });
 
 test("buildTabs derives tabs from category array with overview first", () => {

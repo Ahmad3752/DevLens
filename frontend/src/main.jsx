@@ -32,6 +32,8 @@ import "./styles.css";
 import {
   buildScoreReportTabs,
   buildTabs,
+  moduleNormalizedScore,
+  moduleScoreLabel,
   normalizeWorkspace,
   scoreBand,
 } from "./workspaceUtils.mjs";
@@ -577,7 +579,7 @@ function ScoreOverviewDashboard({ workspace, onSelectCategory }) {
         <div className="score-module-pill-grid">
           {workspace.categories.map((category) => (
             <button
-              className={`score-module-pill ${scoreBand(category.normalized_score).className}`}
+              className={`score-module-pill ${scoreBand(moduleNormalizedScore(category)).className}`}
               key={category.key}
               type="button"
               onClick={() => onSelectCategory(category.key)}
@@ -616,25 +618,29 @@ function DashboardScoreBars({ categories }) {
   if (!categories.length) return <p className="muted">No category scores were returned.</p>;
   return (
     <div className="dashboard-score-bars">
-      {categories.map((category, index) => (
-        <div className={`dashboard-score-row ${scoreBand(category.normalized_score).className}`} key={category.key} style={{ "--delay": `${index * 55}ms` }}>
-          <div>
-            <span>{category.name}</span>
-            <b>{formatScore(category.normalized_score)}%</b>
+      {categories.map((category, index) => {
+        const score = moduleNormalizedScore(category);
+        return (
+          <div className={`dashboard-score-row ${scoreBand(score).className}`} key={category.key} style={{ "--delay": `${index * 55}ms` }}>
+            <div>
+              <span>{category.name}</span>
+              <b>{formatScore(score)}%</b>
+            </div>
+            <i><strong style={{ "--score": `${clampScore(score)}%` }} /></i>
           </div>
-          <i><strong style={{ "--score": `${clampScore(category.normalized_score)}%` }} /></i>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 function ScoreCategoryDashboard({ category }) {
-  const band = scoreBand(category.normalized_score);
+  const score = moduleNormalizedScore(category);
+  const band = scoreBand(score);
   return (
     <section className="score-category-report">
       <header className={`score-category-report-hero ${band.className}`}>
-        <ScoreRing score={category.normalized_score} />
+        <ScoreRing score={score} />
         <div>
           <p className="eyebrow">Module Analysis</p>
           <div className="score-category-titleline">
@@ -645,7 +651,7 @@ function ScoreCategoryDashboard({ category }) {
             </div>
           </div>
           <div className="score-category-badges">
-            <ScoreBandBadge score={category.normalized_score} label={category.grade_label || band.label} />
+            <ScoreBandBadge score={score} label={category.grade_label || band.label} />
           </div>
           <p>{category.verdict_sentence || category.score_narrative || "Module evidence was scored from the extracted CV content."}</p>
         </div>
@@ -932,24 +938,27 @@ function TabControls({ tabs, activeTab, setActiveTab }) {
   return (
     <>
       <nav className="tabs desktop-tabs" aria-label="Score categories">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            className={`tab ${tab.key === activeTab ? "active" : ""} ${tab.normalized_score !== undefined ? scoreBand(tab.normalized_score).className : "overview-tab"}`}
-            onClick={() => setActiveTab(tab.key)}
-            type="button"
-          >
-            <span>{tab.name}</span>
-            {tab.normalized_score !== undefined && <b>{formatScore(tab.normalized_score)}</b>}
-          </button>
-        ))}
+        {tabs.map((tab) => {
+          const score = tab.normalized_score !== undefined ? moduleNormalizedScore(tab) : undefined;
+          return (
+            <button
+              key={tab.key}
+              className={`tab ${tab.key === activeTab ? "active" : ""} ${score !== undefined ? scoreBand(score).className : "overview-tab"}`}
+              onClick={() => setActiveTab(tab.key)}
+              type="button"
+            >
+              <span>{tab.name}</span>
+              {score !== undefined && <b>{formatScore(score)}</b>}
+            </button>
+          );
+        })}
       </nav>
       <label className="mobile-tab-select">
         <span>Score section</span>
         <select value={activeTab} onChange={(event) => setActiveTab(event.target.value)}>
           {tabs.map((tab) => (
             <option key={tab.key} value={tab.key}>
-              {tab.normalized_score !== undefined ? `${tab.name} ${formatScore(tab.normalized_score)}` : tab.name}
+              {tab.normalized_score !== undefined ? `${tab.name} ${formatScore(moduleNormalizedScore(tab))}` : tab.name}
             </option>
           ))}
         </select>
@@ -979,12 +988,12 @@ function OverviewTab({ workspace, onSelectCategory }) {
           {workspace.categories.map((category) => (
             <button
               type="button"
-              className={`overview-chip ${scoreBand(category.normalized_score).className}`}
+              className={`overview-chip ${scoreBand(moduleNormalizedScore(category)).className}`}
               key={category.key}
               onClick={() => onSelectCategory(category.key)}
             >
               <span>{category.name}</span>
-              <strong>{formatScore(category.normalized_score)}</strong>
+              <strong>{formatScore(moduleNormalizedScore(category))}</strong>
             </button>
           ))}
         </div>
@@ -996,13 +1005,16 @@ function OverviewTab({ workspace, onSelectCategory }) {
 function ScoreBars({ categories }) {
   return (
     <div className="chart-bars">
-      {categories.map((category, index) => (
-        <div className={`chart-row ${scoreBand(category.normalized_score).className}`} key={category.key} style={{ "--delay": `${index * 50}ms` }}>
-          <span>{category.name}</span>
-          <div><i style={{ "--score": `${clampScore(category.normalized_score)}%` }} /></div>
-          <b>{formatScore(category.normalized_score)}</b>
-        </div>
-      ))}
+      {categories.map((category, index) => {
+        const score = moduleNormalizedScore(category);
+        return (
+          <div className={`chart-row ${scoreBand(score).className}`} key={category.key} style={{ "--delay": `${index * 50}ms` }}>
+            <span>{category.name}</span>
+            <div><i style={{ "--score": `${clampScore(score)}%` }} /></div>
+            <b>{formatScore(score)}</b>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1030,7 +1042,8 @@ function CategoryPanel({ category }) {
 }
 
 function CategoryScoreHeader({ category }) {
-  const band = scoreBand(category.normalized_score);
+  const score = moduleNormalizedScore(category);
+  const band = scoreBand(score);
   return (
     <header className={`category-score-header ${band.className}`}>
       <div className="category-title-row">
@@ -1038,10 +1051,10 @@ function CategoryScoreHeader({ category }) {
           <p className="eyebrow">Category analysis</p>
           <h2>{category.name}</h2>
         </div>
-        <strong>{formatScore(category.normalized_score)} <small>/ 100</small></strong>
+        <strong>{formatScore(score)} <small>/ 100</small></strong>
       </div>
       <div className="category-progress">
-        <i style={{ "--score": `${clampScore(category.normalized_score)}%` }} />
+        <i style={{ "--score": `${clampScore(score)}%` }} />
       </div>
       <div className="category-verdict-line">
         <span><i />{category.grade_label || band.label}</span>
@@ -1159,31 +1172,6 @@ function roleFitLabel(workspace) {
   return "Needs support";
 }
 
-function moduleScoreLabel(category) {
-  const score = Number(category.score);
-  const max = Number(category.max_score);
-  if (Number.isFinite(score) && Number.isFinite(max) && max > 0) {
-    return `${formatScore(score)}/${formatScore(max)}`;
-  }
-
-  const totals = Object.values(category.sub_scores || {}).reduce((acc, item) => {
-    if (!item || typeof item !== "object") return acc;
-    const itemScore = Number(item.score);
-    const itemMax = Number(item.max);
-    if (!Number.isFinite(itemScore) || !Number.isFinite(itemMax) || itemMax <= 0) return acc;
-    return {
-      score: acc.score + itemScore,
-      max: acc.max + itemMax,
-    };
-  }, { score: 0, max: 0 });
-
-  if (totals.max > 0) {
-    return `${formatScore(totals.score)}/${formatScore(totals.max)}`;
-  }
-
-  return `${formatScore(category.normalized_score)}/100`;
-}
-
 function formatRole(role) {
   const value = String(role || "").trim();
   if (!value) return "Selected Role";
@@ -1231,7 +1219,7 @@ function formatJobDate(value) {
 
 function buildStrengthItems(categories) {
   return [...categories]
-    .sort((a, b) => Number(b.normalized_score || 0) - Number(a.normalized_score || 0))
+    .sort((a, b) => moduleNormalizedScore(b) - moduleNormalizedScore(a))
     .filter((category) => category.evidence?.length || category.score_narrative || category.verdict_sentence)
     .slice(0, 4)
     .map((category) => ({
@@ -1242,10 +1230,10 @@ function buildStrengthItems(categories) {
 
 function buildImprovementItems(categories) {
   return [...categories]
-    .sort((a, b) => Number(a.normalized_score || 0) - Number(b.normalized_score || 0))
+    .sort((a, b) => moduleNormalizedScore(a) - moduleNormalizedScore(b))
     .map((category) => {
       const body = category.missing_evidence?.[0] || category.recommendations?.[0] || (
-        Number(category.normalized_score || 0) < 70 ? category.verdict_sentence || category.score_narrative : ""
+        moduleNormalizedScore(category) < 70 ? category.verdict_sentence || category.score_narrative : ""
       );
       return body ? { title: category.name, body: truncateText(body, 150) } : null;
     })
@@ -1258,7 +1246,7 @@ function categorySnippet(category) {
     category.verdict_sentence
       || category.score_narrative
       || category.evidence?.[0]
-      || `${scoreBand(category.normalized_score).label} score in this section.`,
+      || `${scoreBand(moduleNormalizedScore(category)).label} score in this section.`,
     82,
   );
 }

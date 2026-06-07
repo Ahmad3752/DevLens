@@ -122,6 +122,8 @@ class CategoryViewTests(unittest.TestCase):
         self.assertEqual(payload["role_fit_score"], 82.0)
         self.assertEqual(payload["role_match_label"], "Strong Match")
         self.assertEqual([category.key for category in payload["categories"]], ["project_work", "role_fit"])
+        self.assertEqual(payload["categories"][0].score, 18)
+        self.assertEqual(payload["categories"][0].max_score, 22)
 
 
 class PipelineLoggingTests(unittest.TestCase):
